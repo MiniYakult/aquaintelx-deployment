@@ -1,0 +1,13 @@
+*.csv
+__pycache__/
+*.pyc
+.env
+config_backup.php
+ai_predict_backup.php
+make_hash.php
+train_model.py
+test_password.php
+
+aquaintelx xcopy.sql
+
+aquaintelx_xcopy.sql

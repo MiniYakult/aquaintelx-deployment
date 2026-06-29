@@ -656,6 +656,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Start the connection manager
     window.hardwareTracker = new HardwareConnection();
+        // ── Live Preview from get_live.php ─────────────────
+        async function loadLivePreview() {
+            try {
+                const res = await fetch(`get_live.php?sensor_node=NODE-01&_=${Date.now()}`, {
+                    cache: "no-store"
+                });
+
+                const data = await res.json();
+                console.log("Live Preview:", data);
+
+                if (data.status !== "success") {
+                    console.warn("No live preview data:", data.message);
+                    return;
+                }
+
+                if (window.hardwareTracker) {
+                    window.hardwareTracker.updateDashboard({
+                        temperature: parseInt(data.temperature_valid) === 1 ? parseFloat(data.temperature) : undefined,
+                        turbidity: data.turbidity !== null ? parseFloat(data.turbidity) : undefined,
+                        tds: data.tds !== null ? parseFloat(data.tds) : undefined,
+                        ph: parseInt(data.ph_valid) === 1 ? parseFloat(data.ph) : undefined
+                    });
+                }
+
+                const statusText = document.querySelector(".system-status span");
+                if (statusText) {
+                    statusText.textContent = data.system_state || "Live Preview";
+                }
+
+            } catch (err) {
+                console.error("Live preview fetch failed:", err);
+            }
+        }
+
+        // Load live preview immediately
+        loadLivePreview();
+
+        // Refresh live preview every 5 seconds
+        setInterval(loadLivePreview, 5000);
+
 
     // ==========================================
     // SPA ROUTING & UI INTERACTIONS
@@ -847,17 +887,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             trendsChart.update();
-
-                const latest = data.data[data.data.length - 1];
-
-                if (latest && window.hardwareTracker) {
-                    window.hardwareTracker.updateDashboard({
-                        temperature: parseFloat(latest.temperature),
-                        turbidity: parseFloat(latest.turbidity),
-                        tds: parseFloat(latest.tds),
-                        ph: parseFloat(latest.ph)
-                    });
-                }
 
         } catch (err) {
             console.warn('Could not load chart data from DB:', err);

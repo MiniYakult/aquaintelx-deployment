@@ -1,21 +1,19 @@
 <?php
 header("Content-Type: application/json");
 
+date_default_timezone_set("Asia/Manila");
+
 // ===============================
 // AquaIntelX hardware_push.php
-// Accepts:
-// - Online ESP32 readings
-// - Offline SD card synced readings
+// Saves 15-minute average readings
+// Accepts online and SD-card synced data
 // ===============================
 
-// OPTIONAL API KEY CHECK
-// This must match the ESP32 apiKey value.
-$EXPECTED_API_KEY = getenv("SENSOR_API_KEY") ?: "change-this-secret-key-here";
+$EXPECTED_API_KEY = "change-this-secret-key-here";
 
 $headers = getallheaders();
 $receivedApiKey = "";
 
-// Some servers return lowercase header names.
 if (isset($headers["X-Api-Key"])) {
     $receivedApiKey = $headers["X-Api-Key"];
 } elseif (isset($headers["x-api-key"])) {
@@ -33,8 +31,6 @@ if ($EXPECTED_API_KEY !== "" && $receivedApiKey !== $EXPECTED_API_KEY) {
 
 // ===============================
 // DATABASE CONNECTION
-// Change these if needed.
-// For Railway, use your Railway MySQL credentials.
 // ===============================
 
 $host = getenv("MYSQLHOST") ?: getenv("DB_HOST") ?: "localhost";
@@ -53,6 +49,8 @@ try {
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
         ]
     );
+
+    $pdo->exec("SET time_zone = '+08:00'");
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode([
@@ -64,7 +62,7 @@ try {
 }
 
 // ===============================
-// READ JSON BODY
+// READ JSON
 // ===============================
 
 $raw = file_get_contents("php://input");
@@ -81,18 +79,28 @@ if (!$data || !is_array($data)) {
 }
 
 // ===============================
-// GET VALUES FROM ESP32
+// GET VALUES
 // ===============================
 
 $record_id = $data["record_id"] ?? null;
-
 $sensor_node = $data["sensor_node"] ?? "NODE-01";
+
 $system_state = $data["system_state"] ?? "READING";
-$message = $data["message"] ?? "Water quality reading";
+$message = $data["message"] ?? "15-minute average water reading";
 $seconds_remaining = isset($data["seconds_remaining"]) ? intval($data["seconds_remaining"]) : 0;
 
-$temperature = isset($data["temperature"]) ? floatval($data["temperature"]) : null;
+$temperature = array_key_exists("temperature", $data) && $data["temperature"] !== null
+    ? floatval($data["temperature"])
+    : null;
+
+$temperature_valid = isset($data["temperature_valid"])
+    ? intval($data["temperature_valid"])
+    : ($temperature === null ? 0 : 1);
+
 $ph = isset($data["ph"]) ? floatval($data["ph"]) : null;
+$ph_raw = isset($data["ph_raw"]) ? floatval($data["ph_raw"]) : $ph;
+$ph_valid = isset($data["ph_valid"]) ? intval($data["ph_valid"]) : 1;
+
 $turbidity = isset($data["turbidity"]) ? floatval($data["turbidity"]) : null;
 $tds = isset($data["tds"]) ? floatval($data["tds"]) : null;
 
@@ -104,80 +112,59 @@ $data_source = $data["data_source"] ?? "online";
 $offline_timestamp = $data["offline_timestamp"] ?? null;
 $time_valid = isset($data["time_valid"]) ? intval($data["time_valid"]) : 1;
 
-// Some ESP32 code sends timestamp instead of offline_timestamp.
-if ($offline_timestamp === null && isset($data["timestamp"]) && $data_source === "sd_card") {
-    $offline_timestamp = $data["timestamp"];
+$reading_time = $data["timestamp"] ?? date("Y-m-d H:i:s");
+
+if ($offline_timestamp === null && $data_source === "sd_card") {
+    $offline_timestamp = $reading_time;
 }
 
 // ===============================
 // VALIDATION
+// Temperature is allowed to be NULL.
+// pH is allowed even if outside 0-14 because ESP32 sends ph_valid.
 // ===============================
 
-if ($temperature === null || $ph === null || $turbidity === null || $tds === null) {
+if ($ph === null || $turbidity === null || $tds === null) {
     http_response_code(400);
     echo json_encode([
         "status" => "error",
         "message" => "Missing required sensor values",
-        "required" => [
-            "temperature",
-            "ph",
-            "turbidity",
-            "tds"
-        ],
         "received" => $data
     ]);
     exit;
 }
 
-// Generate record_id if missing.
 if ($record_id === null || trim($record_id) === "") {
     $safeNode = preg_replace("/[^A-Za-z0-9_-]/", "", $sensor_node);
-    $record_id = $safeNode . "" . date("Ymd_His") . "" . uniqid();
+    $record_id = $safeNode . "_" . date("Ymd_His") . "_" . uniqid();
 }
 
-// Clean values.
 $sensor_node = substr($sensor_node, 0, 50);
 $system_state = substr($system_state, 0, 50);
 $message = substr($message, 0, 255);
 $data_source = substr($data_source, 0, 20);
 
-if ($risk_level !== null) {
-    $risk_level = substr($risk_level, 0, 50);
-}
-
-if ($ai_confidence_status !== null) {
-    $ai_confidence_status = substr($ai_confidence_status, 0, 50);
-}
-
-// Basic sensor status.
-$sensor_status = "normal";
-
-if ($risk_level !== null) {
-    $riskUpper = strtoupper($risk_level);
-
-    if (strpos($riskUpper, "CRITICAL") !== false) {
-        $sensor_status = "critical";
-    } elseif (strpos($riskUpper, "MODERATE") !== false || strpos($riskUpper, "WARNING") !== false) {
-        $sensor_status = "warning";
-    }
-}
-
-// If risk level was not sent, fallback using turbidity.
 if ($risk_level === null || trim($risk_level) === "") {
     if ($turbidity <= 10) {
         $risk_level = "LOW RISK";
-        $sensor_status = "normal";
     } elseif ($turbidity <= 50) {
         $risk_level = "MODERATE";
-        $sensor_status = "warning";
     } else {
         $risk_level = "CRITICAL";
-        $sensor_status = "critical";
     }
 }
 
+$riskUpper = strtoupper($risk_level);
+$sensor_status = "normal";
+
+if (strpos($riskUpper, "CRITICAL") !== false) {
+    $sensor_status = "critical";
+} elseif (strpos($riskUpper, "MODERATE") !== false || strpos($riskUpper, "WARNING") !== false) {
+    $sensor_status = "warning";
+}
+
 // ===============================
-// INSERT INTO DATABASE
+// INSERT
 // ===============================
 
 try {
@@ -196,7 +183,11 @@ try {
             ai_confidence_status,
             data_source,
             offline_timestamp,
-            time_valid
+            time_valid,
+            reading_time,
+            temperature_valid,
+            ph_raw,
+            ph_valid
         )
         VALUES
         (
@@ -212,7 +203,11 @@ try {
             :ai_confidence_status,
             :data_source,
             :offline_timestamp,
-            :time_valid
+            :time_valid,
+            :reading_time,
+            :temperature_valid,
+            :ph_raw,
+            :ph_valid
         )
         ON DUPLICATE KEY UPDATE
             record_id = record_id
@@ -233,30 +228,34 @@ try {
         ":ai_confidence_status" => $ai_confidence_status,
         ":data_source" => $data_source,
         ":offline_timestamp" => $offline_timestamp,
-        ":time_valid" => $time_valid
+        ":time_valid" => $time_valid,
+        ":reading_time" => $reading_time,
+        ":temperature_valid" => $temperature_valid,
+        ":ph_raw" => $ph_raw,
+        ":ph_valid" => $ph_valid
     ]);
 
     $wasDuplicate = $stmt->rowCount() === 0;
 
     echo json_encode([
-        "success" => true
         "status" => "success",
         "message" => $wasDuplicate ? "Duplicate record ignored" : "Sensor data saved",
         "record_id" => $record_id,
         "sensor_node" => $sensor_node,
         "temperature" => $temperature,
+        "temperature_valid" => $temperature_valid,
         "ph" => $ph,
+        "ph_raw" => $ph_raw,
+        "ph_valid" => $ph_valid,
         "turbidity" => $turbidity,
         "tds" => $tds,
         "sensor_status" => $sensor_status,
         "risk_level" => $risk_level,
-        "confidence" => $confidence,
-        "ai_confidence_status" => $ai_confidence_status,
         "data_source" => $data_source,
         "offline_timestamp" => $offline_timestamp,
+        "reading_time" => $reading_time,
         "time_valid" => $time_valid
     ]);
-
 } catch (Exception $e) {
     http_response_code(500);
 

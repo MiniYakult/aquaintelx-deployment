@@ -27,7 +27,7 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
 // API KEY
 // ===============================
 
-$EXPECTED_API_KEY = getenv("AQUAINTELX_API_KEY") ?: "change-this-secret-key-here";
+$EXPECTED_API_KEY = getenv("SENSOR_API_KEY") ?: getenv("AQUAINTELX_API_KEY") ?: "change-this-secret-key-here";
 
 function get_header_value($name) {
     $headers = [];

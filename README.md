@@ -60,7 +60,7 @@ Visit: **http://localhost/aquaintelx/login.html**
 | Field    | Value                    |
 |----------|--------------------------|
 | Email    | admin@aquaintelx.com     |
-| Password | Admin@1234               |
+| Password | ************             |
 
 > ⚠️ Change this password after your first login!
 

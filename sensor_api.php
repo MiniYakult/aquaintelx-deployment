@@ -6,7 +6,6 @@
 declare(strict_types=1);
 
 require_once 'config.php';
-require_once 'auth_check.php'; // Blocks unauthenticated requests
 
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
@@ -14,6 +13,14 @@ header('X-Content-Type-Options: nosniff');
 // ── Router ────────────────────────────────────────────────
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? 'latest';
+
+// Allow hardware insert to use API key instead of login session
+$isHardwareInsert = ($method === 'POST' && $action === 'insert');
+
+// Everything except hardware insert requires dashboard login
+if (!$isHardwareInsert) {
+    require_once 'auth_check.php';
+}
 
 try {
     $pdo = getDB();

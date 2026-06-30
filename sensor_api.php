@@ -17,6 +17,7 @@ $action = $_GET['action'] ?? 'latest';
 
 try {
     $pdo = getDB();
+    $pdo->exec("SET time_zone = '+08:00'");
 
     if ($method === 'GET' && $action === 'latest') {
     handleLatest($pdo);
@@ -49,16 +50,21 @@ try {
  */
 function handleLatest(PDO $pdo): void {
     $stmt = $pdo->query(
-        'SELECT r.*
+        'SELECT 
+            r.*,
+            COALESCE(r.reading_time, r.recorded_at) AS display_time
            FROM sensor_readings r
      INNER JOIN (
-            SELECT sensor_node, MAX(recorded_at) AS max_time
+            SELECT 
+                sensor_node, 
+                MAX(COALESCE(reading_time, recorded_at)) AS max_time
               FROM sensor_readings
           GROUP BY sensor_node
           ) latest ON r.sensor_node = latest.sensor_node
-                  AND r.recorded_at = latest.max_time
+                  AND COALESCE(r.reading_time, r.recorded_at) = latest.max_time
          ORDER BY r.sensor_node'
     );
+
     echo json_encode(['success' => true, 'data' => $stmt->fetchAll()]);
 }
 
@@ -81,27 +87,32 @@ function handleHistory(PDO $pdo): void {
         $where[] = 'sensor_node = :node';
         $params[':node'] = $node;
     }
+
     if ($from) {
-        $where[] = 'recorded_at >= :from';
+        $where[] = 'COALESCE(reading_time, recorded_at) >= :from';
         $params[':from'] = $from . ' 00:00:00';
     }
+
     if ($to) {
-        $where[] = 'recorded_at <= :to';
+        $where[] = 'COALESCE(reading_time, recorded_at) <= :to';
         $params[':to'] = $to . ' 23:59:59';
     }
 
-    $sql = 'SELECT * FROM sensor_readings'
+    $sql = 'SELECT 
+                *,
+                COALESCE(reading_time, recorded_at) AS display_time
+            FROM sensor_readings'
          . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
-         . ' ORDER BY recorded_at DESC'
+         . ' ORDER BY COALESCE(reading_time, recorded_at) DESC'
          . " LIMIT $limit OFFSET $offset";
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
     $rows = $stmt->fetchAll();
 
-    // Total count for pagination
     $countSql = 'SELECT COUNT(*) FROM sensor_readings'
               . ($where ? ' WHERE ' . implode(' AND ', $where) : '');
+
     $countStmt = $pdo->prepare($countSql);
     $countStmt->execute($params);
     $total = (int)$countStmt->fetchColumn();
@@ -127,47 +138,63 @@ function handleChart(PDO $pdo): void {
     $range = $_GET['range'] ?? '24h';
 
     if ($range === '7d') {
-    $interval = '7 DAY';
-    $maxPoints = 84;
-        } elseif ($range === '30d') {
-            $interval = '30 DAY';
-            $maxPoints = 90;
-        } else {
-            $interval = '24 HOUR';
-            $maxPoints = 60;
-        }
+        $interval = '7 DAY';
+        $maxPoints = 84;
+    } elseif ($range === '30d') {
+        $interval = '30 DAY';
+        $maxPoints = 90;
+    } else {
+        $interval = '24 HOUR';
+        $maxPoints = 60;
+    }
 
-    $where  = "recorded_at >= NOW() - INTERVAL $interval";
+    $where  = "COALESCE(reading_time, recorded_at) >= NOW() - INTERVAL $interval";
     $params = [];
+
     if ($node) {
         $where .= ' AND sensor_node = :node';
         $params[':node'] = $node;
     }
 
-    // Count total rows in range for downsampling
     $countStmt = $pdo->prepare("SELECT COUNT(*) FROM sensor_readings WHERE $where");
     $countStmt->execute($params);
     $total = (int)$countStmt->fetchColumn();
 
-    // Downsample: pick every Nth row
     $nth = max(1, (int)floor($total / $maxPoints));
 
     $stmt = $pdo->prepare(
-        "SELECT id, sensor_node, temperature, turbidity, tds, ph, status, recorded_at
+        "SELECT 
+            id,
+            sensor_node,
+            temperature,
+            turbidity,
+            tds,
+            ph,
+            status,
+            recorded_at,
+            reading_time,
+            COALESCE(reading_time, recorded_at) AS display_time
            FROM sensor_readings
           WHERE $where
-          ORDER BY recorded_at ASC"
+          ORDER BY COALESCE(reading_time, recorded_at) ASC"
     );
+
     $stmt->execute($params);
     $all = $stmt->fetchAll();
 
-    // Apply downsampling
     $sampled = [];
+
     foreach ($all as $i => $row) {
-        if ($i % $nth === 0) $sampled[] = $row;
+        if ($i % $nth === 0) {
+            $sampled[] = $row;
+        }
     }
 
-    echo json_encode(['success' => true, 'data' => $sampled, 'range' => $range]);
+    echo json_encode([
+        'success' => true,
+        'data' => $sampled,
+        'range' => $range
+    ]);
 }
 
 /**
@@ -176,6 +203,7 @@ function handleChart(PDO $pdo): void {
  */
 function handleStats(PDO $pdo): void {
     $range = $_GET['range'] ?? '24h';
+
     if ($range === '7d') {
         $interval = '7 DAY';
     } elseif ($range === '30d') {
@@ -202,10 +230,16 @@ function handleStats(PDO $pdo): void {
             SUM(status = 'warning')    AS warning_count,
             SUM(status = 'critical')   AS critical_count
          FROM sensor_readings
-        WHERE recorded_at >= NOW() - INTERVAL $interval"
+        WHERE COALESCE(reading_time, recorded_at) >= NOW() - INTERVAL $interval"
     );
+
     $stmt->execute();
-    echo json_encode(['success' => true, 'data' => $stmt->fetch(), 'range' => $range]);
+
+    echo json_encode([
+        'success' => true,
+        'data' => $stmt->fetch(),
+        'range' => $range
+    ]);
 }
 
 /**

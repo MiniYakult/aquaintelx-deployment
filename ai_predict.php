@@ -14,48 +14,65 @@ if ($temperature === null || $ph === null || $turbidity === null || $tds === nul
     exit;
 }
 
+if (!is_numeric($temperature) || !is_numeric($ph) || !is_numeric($turbidity) || !is_numeric($tds)) {
+    echo json_encode([
+        "success" => false,
+        "message" => "Invalid sensor values"
+    ]);
+    exit;
+}
+
+$aiFolder = __DIR__ . DIRECTORY_SEPARATOR . 'ai_model';
+
+if (!is_dir($aiFolder)) {
+    echo json_encode([
+        "success" => false,
+        "message" => "AI model folder not found"
+    ]);
+    exit;
+}
+
 $python = getenv('PYTHON_BIN');
 
 if (!$python) {
     if (PHP_OS_FAMILY === 'Windows') {
-        $python = 'C:\\Users\\alexandra nicolas\\AppData\\Local\\Python\\bin\\python.exe';
-        $aiFolder = __DIR__ . '\\ai_model';
+        $localVenvPython = __DIR__ . DIRECTORY_SEPARATOR . '.venv' . DIRECTORY_SEPARATOR . 'Scripts' . DIRECTORY_SEPARATOR . 'python.exe';
 
-        $cmd = 'cd /d ' . escapeshellarg($aiFolder) . ' && '
-            . escapeshellarg($python) . ' predict.py '
-            . escapeshellarg($temperature) . ' '
-            . escapeshellarg($ph) . ' '
-            . escapeshellarg($turbidity) . ' '
-            . escapeshellarg($tds) . ' 2>&1';
+        if (file_exists($localVenvPython)) {
+            $python = $localVenvPython;
+        } else {
+            $python = 'python';
+        }
     } else {
-        $python = '/opt/venv/bin/python';
-        $aiFolder = __DIR__ . '/ai_model';
-
-        $cmd = 'cd ' . escapeshellarg($aiFolder) . ' && '
-            . escapeshellarg($python) . ' predict.py '
-            . escapeshellarg($temperature) . ' '
-            . escapeshellarg($ph) . ' '
-            . escapeshellarg($turbidity) . ' '
-            . escapeshellarg($tds) . ' 2>&1';
+        if (file_exists('/opt/venv/bin/python')) {
+            $python = '/opt/venv/bin/python';
+        } else {
+            $python = 'python3';
+        }
     }
-} else {
-    $aiFolder = PHP_OS_FAMILY === 'Windows'
-        ? __DIR__ . '\\ai_model'
-        : __DIR__ . '/ai_model';
-
-    $cmdPrefix = PHP_OS_FAMILY === 'Windows'
-        ? 'cd /d ' . escapeshellarg($aiFolder)
-        : 'cd ' . escapeshellarg($aiFolder);
-
-    $cmd = $cmdPrefix . ' && '
-        . escapeshellarg($python) . ' predict.py '
-        . escapeshellarg($temperature) . ' '
-        . escapeshellarg($ph) . ' '
-        . escapeshellarg($turbidity) . ' '
-        . escapeshellarg($tds) . ' 2>&1';
 }
 
+$cdCommand = PHP_OS_FAMILY === 'Windows'
+    ? 'cd /d ' . escapeshellarg($aiFolder)
+    : 'cd ' . escapeshellarg($aiFolder);
+
+$cmd = $cdCommand . ' && '
+    . escapeshellarg($python) . ' predict.py '
+    . escapeshellarg($temperature) . ' '
+    . escapeshellarg($ph) . ' '
+    . escapeshellarg($turbidity) . ' '
+    . escapeshellarg($tds) . ' 2>&1';
+
 $output = shell_exec($cmd);
+
+if ($output === null) {
+    echo json_encode([
+        "success" => false,
+        "message" => "Failed to run AI prediction command"
+    ]);
+    exit;
+}
+
 $risk = trim($output);
 
 $validRisks = ["Low Risk", "Moderate Risk", "High Risk"];

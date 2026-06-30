@@ -792,6 +792,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // and syncs live hardware readings back to DB.
     // ==========================================
 
+        function getReadingDate(row) {
+        const timeValue = row.display_time || row.reading_time || row.recorded_at;
+
+        if (!timeValue) return new Date();
+
+        // MySQL DATETIME format: "2026-06-30 19:47:00"
+        // Convert to browser-safe local Date format.
+        if (typeof timeValue === "string" && timeValue.includes(" ")) {
+            return new Date(timeValue.replace(" ", "T"));
+        }
+
+        return new Date(timeValue);
+    }
+
+    function formatReadingTime(row) {
+        const ts = getReadingDate(row);
+
+        return ts.toLocaleString(undefined, {
+            dateStyle: "short",
+            timeStyle: "medium"
+        });
+    }
+
     // ── History Table ─────────────────────────────────────
     const historyTbody = document.getElementById('history-table-body');
     let currentPage    = 1;
@@ -818,8 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             historyTbody.innerHTML = data.data.map(row => {
-                const ts     = new Date(row.recorded_at);
-                const tsStr  = ts.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
+                const tsStr = formatReadingTime(row);
                 const badge  = `<span class="status-badge ${row.status}">${row.status}</span>`;
                 const fmt    = (v, d=1) => v !== null ? parseFloat(v).toFixed(d) : '—';
                 return `<tr>
@@ -878,8 +900,13 @@ document.addEventListener('DOMContentLoaded', () => {
             phSeries.length   = 0;
 
             data.data.forEach(row => {
-                const ts = new Date(row.recorded_at);
-                chartTimeLabels.push(ts.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+                const ts = getReadingDate(row);
+                
+                chartTimeLabels.push(ts.toLocaleTimeString(undefined, {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }));
+                
                 tempSeries.push(row.temperature !== null ? parseFloat(row.temperature) : null);
                 turbSeries.push(row.turbidity   !== null ? parseFloat(row.turbidity)   : null);
                 tdsSeries.push(row.tds          !== null ? parseFloat(row.tds)         : null);

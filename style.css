@@ -961,3 +961,35 @@ body {
 [data-theme="light"] .modal-content { background: var(--bg-card); }
 [data-theme="light"] .conn-card { background: rgba(0,0,0,0.02); }
 
+/* ===============================
+   Dark/Light mode fix for select dropdown
+   =============================== */
+
+.time-filter {
+    background-color: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--border);
+    color-scheme: dark;
+}
+
+.time-filter option {
+    background-color: #151e32;
+    color: #e2e8f0;
+}
+
+.time-filter option:checked,
+.time-filter option:hover {
+    background-color: #2563eb;
+    color: #ffffff;
+}
+
+[data-theme="light"] .time-filter {
+    background-color: #ffffff;
+    color: #1e293b;
+    color-scheme: light;
+}
+
+[data-theme="light"] .time-filter option {
+    background-color: #ffffff;
+    color: #1e293b;
+}

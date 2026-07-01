@@ -61,15 +61,51 @@
                         <p class="page-subtitle" id="main-subtitle">Real-time telemetry and anomaly detection</p>
                     </div>
                 </div>
-                <div class="header-actions">
-                    <div id="db-stats-summary-header" style="font-size:13px;color:var(--text-muted);display:none;"></div>
-                    <div class="system-status">
-                        <div class="status-indicator active"></div>
-                        <span>System Online</span>
-                    </div>
-                    <button class="action-btn theme-toggle" id="theme-toggle" aria-label="Toggle Theme">
-                        <i class="ph ph-sun" id="theme-icon"></i>
+                <div class="header-actions-inline history-actions">
+                    <button id="history-filter-btn" type="button" class="btn btn-primary">
+                        <i class="ph ph-funnel"></i> Filter
                     </button>
+
+                    <a href="export_csv.php?range=all&status=all&node=all" class="btn btn-outline" id="export-btn">
+                        <i class="ph ph-download-simple"></i> Export CSV
+                    </a>
+
+                    <div id="history-filter-menu" class="history-filter-menu">
+                        <h4>Filter History</h4>
+
+                        <div class="filter-group">
+                            <label for="history-range-select">Date Range</label>
+                            <select id="history-range-select">
+                                <option value="all" selected>All Time</option>
+                                <option value="24h">Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                                <option value="30d">Last 30 Days</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="history-status-select">Sensor Status</label>
+                            <select id="history-status-select">
+                                <option value="all" selected>All</option>
+                                <option value="normal">Normal</option>
+                                <option value="warning">Warning</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="history-node-select">Sensor Node</label>
+                            <select id="history-node-select">
+                                <option value="all" selected>All</option>
+                                <option value="NODE-01">NODE-01</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-actions">
+                            <button id="history-apply-filter" type="button" class="btn btn-primary">Apply</button>
+                            <button id="history-reset-filter" type="button" class="btn btn-outline">Reset</button>
+                        </div>
+                    </div>
                 </div>
             </header>
 

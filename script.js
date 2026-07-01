@@ -1,11 +1,10 @@
 // Initialize Chart.js
 document.addEventListener('DOMContentLoaded', () => {
 
-    // Authentication is now handled server-side by auth_check.php (included in index.php).
-    // No localStorage check needed here anymore.
+    // Authentication is handled server-side by auth_check.php.
 
     const ctx = document.getElementById('trendsChart').getContext('2d');
-    
+
     // Gradient for the line chart
     const gradientFill = ctx.createLinearGradient(0, 0, 0, 300);
     gradientFill.addColorStop(0, 'rgba(0, 229, 255, 0.4)');
@@ -166,13 +165,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function pushLiveChartSample(sample) {
         const t = sample.time instanceof Date ? sample.time : new Date();
-        const label = t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const label = t.toLocaleTimeString(undefined, {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
 
         chartTimeLabels.push(label);
-        tempSeries.push(sample.temperature);
-        turbSeries.push(sample.turbidity);
-        tdsSeries.push(sample.tds);
-        phSeries.push(sample.ph);
+        tempSeries.push(sample.temperature ?? null);
+        turbSeries.push(sample.turbidity ?? null);
+        tdsSeries.push(sample.tds ?? null);
+        phSeries.push(sample.ph ?? null);
 
         while (chartTimeLabels.length > LIVE_CHART_MAX_POINTS) {
             chartTimeLabels.shift();
@@ -191,44 +194,47 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeBtn = document.getElementById('theme-toggle');
     const themeIcon = document.getElementById('theme-icon');
 
-    // Check saved theme
     const currentTheme = localStorage.getItem('theme') || 'dark';
+
     if (currentTheme === 'light') {
         document.body.setAttribute('data-theme', 'light');
-        themeIcon.className = 'ph ph-moon';
+        if (themeIcon) themeIcon.className = 'ph ph-moon';
         updateChartTheme('light');
     }
 
-    themeBtn.addEventListener('click', () => {
-        let theme = document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-        document.body.setAttribute('data-theme', theme);
-        localStorage.setItem('theme', theme);
-        
-        // Update Icon
-        themeIcon.className = theme === 'light' ? 'ph ph-moon' : 'ph ph-sun';
-        
-        // Update Chart
-        updateChartTheme(theme);
-    });
+    if (themeBtn) {
+        themeBtn.addEventListener('click', () => {
+            let theme = document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+            document.body.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+
+            if (themeIcon) {
+                themeIcon.className = theme === 'light' ? 'ph ph-moon' : 'ph ph-sun';
+            }
+
+            updateChartTheme(theme);
+        });
+    }
 
     function updateChartTheme(theme) {
         if (!trendsChart) return;
 
         const yGrids = ['yTemp', 'yTds', 'yTurb', 'yPh'];
-        
+
         if (theme === 'light') {
-            Chart.defaults.color = '#64748b'; // --text-muted
+            Chart.defaults.color = '#64748b';
             trendsChart.options.plugins.tooltip.backgroundColor = 'rgba(255, 255, 255, 0.95)';
             trendsChart.options.plugins.tooltip.titleColor = '#0f172a';
             trendsChart.options.plugins.tooltip.bodyColor = '#0f172a';
             trendsChart.options.plugins.tooltip.borderColor = 'rgba(0,0,0,0.1)';
-            
+
             trendsChart.options.scales.x.grid.color = 'rgba(0, 0, 0, 0.05)';
+
             yGrids.forEach((id) => {
                 const g = trendsChart.options.scales[id]?.grid;
                 if (g && 'color' in g) g.color = 'rgba(0, 0, 0, 0.05)';
             });
-            
+
             trendsChart.update();
         } else {
             Chart.defaults.color = '#94a3b8';
@@ -236,22 +242,24 @@ document.addEventListener('DOMContentLoaded', () => {
             trendsChart.options.plugins.tooltip.titleColor = '#e2e8f0';
             trendsChart.options.plugins.tooltip.bodyColor = '#e2e8f0';
             trendsChart.options.plugins.tooltip.borderColor = 'rgba(255,255,255,0.1)';
-            
+
             trendsChart.options.scales.x.grid.color = 'rgba(255, 255, 255, 0.05)';
+
             yGrids.forEach((id) => {
                 const g = trendsChart.options.scales[id]?.grid;
                 if (g && 'color' in g) g.color = 'rgba(255, 255, 255, 0.05)';
             });
-            
+
             trendsChart.update();
         }
     }
 
     // ==========================================
-    // HARDWARE INTEGRATION (TELEMETRY MANAGER)
+    // HARDWARE INTEGRATION
     // ==========================================
     function normalizeTelemetry(raw) {
         const r = raw && typeof raw === 'object' ? raw : {};
+
         const pick = (...keys) => {
             for (const k of keys) {
                 if (r[k] === undefined || r[k] === null || r[k] === '') continue;
@@ -260,6 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             return undefined;
         };
+
         return {
             temperature: pick('temperature', 'temp', 'Temperature', 'TEMP'),
             turbidity: pick('turbidity', 'turb', 'Turbidity', 'ntu', 'NTU', 'turbidity_ntu'),
@@ -279,37 +288,46 @@ document.addEventListener('DOMContentLoaded', () => {
             this.aiBusy = false;
             this.lastAIRequest = 0;
 
-            // DOM Elements
             this.ui = {
                 temp: document.getElementById('temp-val'),
                 turb: document.getElementById('turb-val'),
-                tds:  document.getElementById('tds-val'),
-                ph:   document.getElementById('ph-val')
+                tds: document.getElementById('tds-val'),
+                ph: document.getElementById('ph-val')
             };
 
             this.setupInteractiveStatus();
 
-            document.querySelector('.status-indicator').classList.add('active');
-            document.querySelector('.status-indicator').style.backgroundColor = "var(--success)";
-            document.querySelector('.system-status span').textContent = "Reading Database";
+            const indicator = document.querySelector('.status-indicator');
+            const statusText = document.querySelector('.system-status span');
+
+            if (indicator) {
+                indicator.classList.add('active');
+                indicator.style.backgroundColor = 'var(--success)';
+            }
+
+            if (statusText) {
+                statusText.textContent = 'Reading Database';
+            }
         }
 
         setupInteractiveStatus() {
             const statusEl = document.querySelector('.system-status');
+            if (!statusEl) return;
+
             statusEl.style.cursor = 'pointer';
             statusEl.title = 'Click to configure hardware connection';
-            
+
             const modal = document.getElementById('connection-modal');
             const closeBtn = document.getElementById('close-conn-modal');
-            
+
             statusEl.addEventListener('click', () => {
-                if(modal) {
+                if (modal) {
                     modal.classList.add('open');
                     this.setupModalInteractions();
                 }
             });
-            
-            if(closeBtn && modal) {
+
+            if (closeBtn && modal) {
                 closeBtn.addEventListener('click', () => {
                     modal.classList.remove('open');
                 });
@@ -323,11 +341,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const wifiConfig = document.getElementById('wifi-config');
             const connectWifiBtn = document.getElementById('btn-connect-wifi');
             const wifiInput = document.getElementById('wifi-url-input');
-            
-            // Set input to current
-            if(wifiInput) {
-                wifiInput.value = this.mode === 'REST' ? this.restEndpoint : this.websocketUrl;
-            }
+
+            if (!modal || !wifiCard || !wiredCard || !wifiConfig || !connectWifiBtn || !wifiInput) return;
+
+            wifiInput.value = this.mode === 'REST' ? this.restEndpoint : this.websocketUrl;
 
             const clearActive = () => {
                 wifiCard.classList.remove('active');
@@ -345,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 clearActive();
                 wiredCard.classList.add('active');
                 modal.classList.remove('open');
-                
+
                 this.mode = 'SERIAL';
                 localStorage.setItem('hw_mode', 'SERIAL');
                 this.init();
@@ -354,7 +371,7 @@ document.addEventListener('DOMContentLoaded', () => {
             connectWifiBtn.onclick = () => {
                 const url = wifiInput.value.trim();
                 if (!url) return;
-                
+
                 if (/^https?:\/\//i.test(url)) {
                     this.mode = 'REST';
                     this.restEndpoint = url;
@@ -366,23 +383,39 @@ document.addEventListener('DOMContentLoaded', () => {
                     localStorage.setItem('hw_mode', 'WEBSOCKET');
                     localStorage.setItem('hw_url', url);
                 }
+
                 modal.classList.remove('open');
                 this.init();
             };
         }
 
         init() {
-            // Clean up old connections if re-initializing
-            if (this.ws) { this.ws.onclose = null; this.ws.close(); }
-            if (this.pollingIntervalId) clearInterval(this.pollingIntervalId);
+            if (this.ws) {
+                this.ws.onclose = null;
+                this.ws.close();
+            }
 
-            document.querySelector('.status-indicator').classList.remove('active');
-            document.querySelector('.system-status span').textContent = "Connecting...";
-            document.querySelector('.status-indicator').style.backgroundColor = "var(--warning)";
+            if (this.pollingIntervalId) {
+                clearInterval(this.pollingIntervalId);
+            }
 
-            if (this.serialReader) { 
-                try { this.serialReader.cancel(); } catch(e) {} 
-                this.serialReader = null; 
+            const indicator = document.querySelector('.status-indicator');
+            const statusText = document.querySelector('.system-status span');
+
+            if (indicator) {
+                indicator.classList.remove('active');
+                indicator.style.backgroundColor = 'var(--warning)';
+            }
+
+            if (statusText) {
+                statusText.textContent = 'Connecting...';
+            }
+
+            if (this.serialReader) {
+                try {
+                    this.serialReader.cancel();
+                } catch (e) {}
+                this.serialReader = null;
             }
 
             if (this.mode === 'WEBSOCKET') {
@@ -396,14 +429,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         connectWebSocket() {
             console.log(`Attempting to connect to hardware via WebSocket at ${this.websocketUrl}...`);
+
             try {
                 this.ws = new WebSocket(this.websocketUrl);
 
                 this.ws.onopen = () => {
-                    console.log("Hardware connected successfully.");
-                    document.querySelector('.status-indicator').classList.add('active');
-                    document.querySelector('.status-indicator').style.backgroundColor = "var(--success)";
-                    document.querySelector('.system-status span').textContent = "Hardware Connected";
+                    console.log('Hardware connected successfully.');
+
+                    const indicator = document.querySelector('.status-indicator');
+                    const statusText = document.querySelector('.system-status span');
+
+                    if (indicator) {
+                        indicator.classList.add('active');
+                        indicator.style.backgroundColor = 'var(--success)';
+                    }
+
+                    if (statusText) {
+                        statusText.textContent = 'Hardware Connected';
+                    }
                 };
 
                 this.ws.onmessage = (event) => {
@@ -411,50 +454,79 @@ document.addEventListener('DOMContentLoaded', () => {
                         const data = JSON.parse(event.data);
                         this.updateDashboard(data);
                     } catch (e) {
-                        console.error("Error parsing hardware data:", e);
+                        console.error('Error parsing hardware data:', e);
                     }
                 };
 
                 this.ws.onclose = () => {
                     console.warn(`Hardware disconnected from ${this.websocketUrl}. Reconnecting in 5s...`);
-                    document.querySelector('.status-indicator').classList.remove('active');
-                    document.querySelector('.status-indicator').style.backgroundColor = "var(--danger)";
-                    document.querySelector('.system-status span').textContent = "Connection Lost (Click to Edit)";
-                    setTimeout(() => { if(this.mode === 'WEBSOCKET') this.connectWebSocket(); }, 5000);
+
+                    const indicator = document.querySelector('.status-indicator');
+                    const statusText = document.querySelector('.system-status span');
+
+                    if (indicator) {
+                        indicator.classList.remove('active');
+                        indicator.style.backgroundColor = 'var(--danger)';
+                    }
+
+                    if (statusText) {
+                        statusText.textContent = 'Connection Lost (Click to Edit)';
+                    }
+
+                    setTimeout(() => {
+                        if (this.mode === 'WEBSOCKET') this.connectWebSocket();
+                    }, 5000);
                 };
-                
+
                 this.ws.onerror = (error) => {
-                    console.error("WebSocket Error:", error);
-                    // onclose will handle reconnection
+                    console.error('WebSocket Error:', error);
                 };
             } catch (err) {
-                console.error("Invalid WebSocket URL:", err);
-                document.querySelector('.status-indicator').style.backgroundColor = "var(--danger)";
-                document.querySelector('.system-status span').textContent = "Invalid IP (Click to Edit)";
+                console.error('Invalid WebSocket URL:', err);
+
+                const indicator = document.querySelector('.status-indicator');
+                const statusText = document.querySelector('.system-status span');
+
+                if (indicator) {
+                    indicator.style.backgroundColor = 'var(--danger)';
+                }
+
+                if (statusText) {
+                    statusText.textContent = 'Invalid IP (Click to Edit)';
+                }
             }
         }
 
         startRestPolling() {
-            console.log("Starting REST polling to hardware...");
-            document.querySelector('.status-indicator').classList.add('active');
-            document.querySelector('.status-indicator').style.backgroundColor = "var(--success)";
-            document.querySelector('.system-status span').textContent = "Polling Hardware";
+            console.log('Starting REST polling to hardware...');
+
+            const indicator = document.querySelector('.status-indicator');
+            const statusText = document.querySelector('.system-status span');
+
+            if (indicator) {
+                indicator.classList.add('active');
+                indicator.style.backgroundColor = 'var(--success)';
+            }
+
+            if (statusText) {
+                statusText.textContent = 'Polling Hardware';
+            }
 
             const poll = async () => {
                 try {
                     const response = await fetch(this.restEndpoint);
-                    if (!response.ok) throw new Error("Hardware unavailable");
+                    if (!response.ok) throw new Error('Hardware unavailable');
+
                     const data = await response.json();
                     this.updateDashboard(data);
                 } catch (error) {
-                    console.error("REST Polling Error:", error);
+                    console.error('REST Polling Error:', error);
                 }
             };
+
             poll();
             this.pollingIntervalId = setInterval(poll, this.pollingInterval);
         }
-
-
 
         async connectSerial() {
             if (!('serial' in navigator)) {
@@ -464,17 +536,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 const port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 115200 }); // Typical default for microcontrollers
+                await port.open({ baudRate: 115200 });
 
-                document.querySelector('.status-indicator').classList.add('active');
-                document.querySelector('.status-indicator').style.backgroundColor = "var(--success)";
-                document.querySelector('.system-status span').textContent = "USB Connected";
+                const indicator = document.querySelector('.status-indicator');
+                const statusText = document.querySelector('.system-status span');
+
+                if (indicator) {
+                    indicator.classList.add('active');
+                    indicator.style.backgroundColor = 'var(--success)';
+                }
+
+                if (statusText) {
+                    statusText.textContent = 'USB Connected';
+                }
 
                 const textDecoder = new TextDecoderStream();
-                const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+                port.readable.pipeTo(textDecoder.writable);
                 this.serialReader = textDecoder.readable.getReader();
 
-                let accumulatedString = "";
+                let accumulatedString = '';
 
                 while (true) {
                     const { value, done } = await this.serialReader.read();
@@ -482,37 +562,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     accumulatedString += value;
                     const lines = accumulatedString.split('\n');
-                    accumulatedString = lines.pop(); // Keep incomplete line at the end
+                    accumulatedString = lines.pop();
 
                     for (const line of lines) {
                         try {
                             const trimmed = line.trim();
                             if (trimmed) {
-                                // Assume backend sends pure JSON like: {"temperature":22,"ph":7}
                                 const data = JSON.parse(trimmed);
                                 this.updateDashboard(data);
                             }
-                        } catch (e) {
-                            // ignore partial/invalid json frames safely
-                        }
+                        } catch (e) {}
                     }
                 }
             } catch (err) {
-                console.error("Serial Connection Error:", err);
-                document.querySelector('.status-indicator').classList.remove('active');
-                document.querySelector('.status-indicator').style.backgroundColor = "var(--danger)";
-                document.querySelector('.system-status span').textContent = "USB Error (Click Setup)";
+                console.error('Serial Connection Error:', err);
+
+                const indicator = document.querySelector('.status-indicator');
+                const statusText = document.querySelector('.system-status span');
+
+                if (indicator) {
+                    indicator.classList.remove('active');
+                    indicator.style.backgroundColor = 'var(--danger)';
+                }
+
+                if (statusText) {
+                    statusText.textContent = 'USB Error (Click Setup)';
+                }
             }
         }
-
 
         mergeSample(data) {
             const n = normalizeTelemetry(data);
             const m = { ...this.lastSample };
+
             if (n.temperature !== undefined) m.temperature = n.temperature;
             if (n.turbidity !== undefined) m.turbidity = n.turbidity;
             if (n.tds !== undefined) m.tds = n.tds;
             if (n.ph !== undefined) m.ph = n.ph;
+
             this.lastSample = m;
             return m;
         }
@@ -521,12 +608,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const live = this.mergeSample(data);
 
             const updateMetric = (el, value, suffix, decimals = 1) => {
+                if (!el) return;
                 if (value === undefined || value === null) return;
+
                 const num = parseFloat(value);
                 if (!Number.isFinite(num)) return;
+
                 const formatted = num.toFixed(decimals);
                 const currentNum = parseFloat(el.textContent);
                 const prev = Number.isFinite(currentNum) ? currentNum.toFixed(decimals) : null;
+
                 if (formatted !== prev) {
                     el.innerHTML = `${formatted}<span class="unit">${suffix}</span>`;
                     el.classList.remove('value-update');
@@ -539,27 +630,32 @@ document.addEventListener('DOMContentLoaded', () => {
             updateMetric(this.ui.turb, live.turbidity, 'NTU', 2);
             updateMetric(this.ui.tds, live.tds, 'ppm', 0);
 
-            if (live.ph !== undefined && live.ph !== null) {
-                const phFormatted = live.ph.toFixed(2);
-                const phCurrent = parseFloat(this.ui.ph.textContent).toFixed(2);
-                if (phFormatted !== phCurrent) {
-                    this.ui.ph.textContent = phFormatted;
-                    this.ui.ph.classList.remove('value-update');
-                    void this.ui.ph.offsetWidth;
-                    this.ui.ph.classList.add('value-update');
+            if (this.ui.ph && live.ph !== undefined && live.ph !== null) {
+                const phNum = Number(live.ph);
+                if (Number.isFinite(phNum)) {
+                    const phFormatted = phNum.toFixed(2);
+                    const phCurrentNum = parseFloat(this.ui.ph.textContent);
+                    const phCurrent = Number.isFinite(phCurrentNum) ? phCurrentNum.toFixed(2) : null;
+
+                    if (phFormatted !== phCurrent) {
+                        this.ui.ph.textContent = phFormatted;
+                        this.ui.ph.classList.remove('value-update');
+                        void this.ui.ph.offsetWidth;
+                        this.ui.ph.classList.add('value-update');
+                    }
                 }
             }
-            
+
             const setStatus = (id, text) => {
                 const el = document.getElementById(id);
-                    if (!el) return;
-                    el.innerHTML = `<i class="ph ph-database"></i><span>${text}</span>`;
-                };
+                if (!el) return;
+                el.innerHTML = `<i class="ph ph-database"></i><span>${text}</span>`;
+            };
 
-                setStatus('temp-status', 'Latest Reading');
-                setStatus('turb-status', 'Latest Reading');
-                setStatus('tds-status', 'Latest Reading');
-                setStatus('ph-status', 'Latest Reading');
+            setStatus('temp-status', 'Latest Reading');
+            setStatus('turb-status', 'Latest Reading');
+            setStatus('tds-status', 'Latest Reading');
+            setStatus('ph-status', 'Latest Reading');
 
             if (live.temperature !== undefined) {
                 pushLiveChartSample({ ...live, time: new Date() });
@@ -574,7 +670,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         async analyzeWaterQuality(metrics) {
-
             if (this.aiBusy) return;
 
             const now = Date.now();
@@ -584,16 +679,21 @@ document.addEventListener('DOMContentLoaded', () => {
             this.lastAIRequest = now;
 
             const listEl = document.getElementById('ai-insights-list');
+
             if (!listEl) {
                 this.aiBusy = false;
                 return;
             }
 
             try {
-                const response = await fetch(
-                    `ai_predict.php?temperature=${metrics.temp}&ph=${metrics.ph}&turbidity=${metrics.turb}&tds=${metrics.tds}`
-                );
+                const params = new URLSearchParams({
+                    temperature: metrics.temp ?? '',
+                    ph: metrics.ph ?? '',
+                    turbidity: metrics.turb ?? '',
+                    tds: metrics.tds ?? ''
+                });
 
+                const response = await fetch(`ai_predict.php?${params.toString()}`);
                 const result = await response.json();
 
                 if (!result.success) {
@@ -612,6 +712,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     icon = 'ph-x-circle';
                     cssClass = 'critical';
                 }
+
                 listEl.innerHTML = `
                     <div class="insight-item ${cssClass}" style="display:block; padding:22px;">
                         <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
@@ -634,7 +735,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                 `;
-
             } catch (error) {
                 console.error(error);
 
@@ -655,46 +755,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Start the connection manager
     window.hardwareTracker = new HardwareConnection();
-        // ── Live Preview from get_live.php ─────────────────
-        async function loadLivePreview() {
-            try {
-                const res = await fetch(`get_live.php?sensor_node=NODE-01&_=${Date.now()}`, {
-                    cache: "no-store"
-                });
 
-                const data = await res.json();
-                console.log("Live Preview:", data);
+    // ── Live Preview from get_live.php ─────────────────
+    async function loadLivePreview() {
+        try {
+            const res = await fetch(`get_live.php?sensor_node=NODE-01&_=${Date.now()}`, {
+                cache: 'no-store'
+            });
 
-                if (data.status !== "success") {
-                    console.warn("No live preview data:", data.message);
-                    return;
-                }
+            const data = await res.json();
+            console.log('Live Preview:', data);
 
-                if (window.hardwareTracker) {
-                    window.hardwareTracker.updateDashboard({
-                        temperature: parseInt(data.temperature_valid) === 1 ? parseFloat(data.temperature) : undefined,
-                        turbidity: data.turbidity !== null ? parseFloat(data.turbidity) : undefined,
-                        tds: data.tds !== null ? parseFloat(data.tds) : undefined,
-                        ph: parseInt(data.ph_valid) === 1 ? parseFloat(data.ph) : undefined
-                    });
-                }
-
-                const statusText = document.querySelector(".system-status span");
-                if (statusText) {
-                    statusText.textContent = data.system_state || "Live Preview";
-                }
-
-            } catch (err) {
-                console.error("Live preview fetch failed:", err);
+            if (data.status !== 'success') {
+                console.warn('No live preview data:', data.message);
+                return;
             }
+
+            if (window.hardwareTracker) {
+                window.hardwareTracker.updateDashboard({
+                    temperature: parseInt(data.temperature_valid) === 1 ? parseFloat(data.temperature) : undefined,
+                    turbidity: data.turbidity !== null ? parseFloat(data.turbidity) : undefined,
+                    tds: data.tds !== null ? parseFloat(data.tds) : undefined,
+                    ph: parseInt(data.ph_valid) === 1 ? parseFloat(data.ph) : undefined
+                });
+            }
+
+            const statusText = document.querySelector('.system-status span');
+
+            if (statusText) {
+                statusText.textContent = data.system_state || 'Live Preview';
+            }
+        } catch (err) {
+            console.error('Live preview fetch failed:', err);
         }
+    }
 
-        // Load live preview immediately
-        loadLivePreview();
-
-        // Refresh live preview every 5 seconds
-        setInterval(loadLivePreview, 5000);
-
+    loadLivePreview();
+    setInterval(loadLivePreview, 5000);
 
     // ==========================================
     // SPA ROUTING & UI INTERACTIONS
@@ -705,10 +802,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const mainSubtitle = document.getElementById('main-subtitle');
 
     const pageTitles = {
-        'analytics': { title: 'Live Analytics', subtitle: 'Real-time telemetry and anomaly detection' },
-        'history': { title: 'History & Logs', subtitle: 'Historical sensor data and exportable reports' },
-        'about': { title: 'About AquaIntelX', subtitle: 'System architecture and mission' },
-        'contact': { title: 'Contact Support', subtitle: 'Technical support and hardware requests' }
+        analytics: { title: 'Live Analytics', subtitle: 'Real-time telemetry and anomaly detection' },
+        history: { title: 'History & Logs', subtitle: 'Historical sensor data and exportable reports' },
+        about: { title: 'About AquaIntelX', subtitle: 'System architecture and mission' },
+        contact: { title: 'Contact Support', subtitle: 'Technical support and hardware requests' }
     };
 
     // ==========================================
@@ -720,62 +817,69 @@ document.addEventListener('DOMContentLoaded', () => {
     const mobileOverlay = document.getElementById('mobile-overlay');
 
     const toggleMenu = () => {
-        sidebar.classList.toggle('open');
-        mobileOverlay.classList.toggle('open');
+        if (sidebar) sidebar.classList.toggle('open');
+        if (mobileOverlay) mobileOverlay.classList.toggle('open');
     };
 
-    if (mobileMenuBtn) {
+    if (mobileMenuBtn && closeSidebarBtn && mobileOverlay) {
         mobileMenuBtn.addEventListener('click', toggleMenu);
         closeSidebarBtn.addEventListener('click', toggleMenu);
         mobileOverlay.addEventListener('click', toggleMenu);
     }
 
-    // Handle navigation interaction
     navItems.forEach(item => {
         item.addEventListener('click', (e) => {
             const targetId = item.getAttribute('data-target');
-            if (!targetId) return; 
+            if (!targetId) return;
 
             e.preventDefault();
-            
+
             navItems.forEach(nav => nav.classList.remove('active'));
             item.classList.add('active');
-            
+
             pageSections.forEach(section => {
                 section.classList.remove('active');
             });
-            document.getElementById(targetId).classList.add('active');
 
-            if(pageTitles[targetId]) {
-                mainTitle.textContent = pageTitles[targetId].title;
-                mainSubtitle.textContent = pageTitles[targetId].subtitle;
+            const targetSection = document.getElementById(targetId);
+            if (targetSection) {
+                targetSection.classList.add('active');
             }
 
-            // Closes menu nicely on mobile after selection
-            if(window.innerWidth <= 768) {
+            if (pageTitles[targetId]) {
+                if (mainTitle) mainTitle.textContent = pageTitles[targetId].title;
+                if (mainSubtitle) mainSubtitle.textContent = pageTitles[targetId].subtitle;
+            }
+
+            if (targetId === 'history') {
+                loadHistory(1, currentHistoryFilters);
+            }
+
+            if (window.innerWidth <= 768) {
                 toggleMenu();
             }
         });
     });
 
-    // Logout is handled by logout.php (href on the sidebar link).
-    // No localStorage manipulation needed.
-
-    // Form submission simulation (contact form - no backend needed)
+    // Contact form UI only
     const contactForm = document.getElementById('contactForm');
-    if(contactForm) {
+
+    if (contactForm) {
         contactForm.addEventListener('submit', (e) => {
             e.preventDefault();
+
             const btn = contactForm.querySelector('.submit-btn');
+            if (!btn) return;
+
             const originalText = btn.textContent;
             btn.innerHTML = '<i class="ph ph-spinner-gap" style="animation: spin 1s linear infinite;"></i> Sending...';
-            
+
             setTimeout(() => {
                 btn.innerHTML = '<i class="ph ph-check"></i> Sent Successfully';
                 btn.style.backgroundColor = 'var(--success)';
                 btn.style.boxShadow = '0 0 15px rgba(16, 185, 129, 0.4)';
                 contactForm.reset();
-                
+
                 setTimeout(() => {
                     btn.textContent = originalText;
                     btn.style.backgroundColor = '';
@@ -787,19 +891,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ==========================================
     // DATABASE INTEGRATION
-    // Loads saved 15-minute average readings from sensor_api.php.
-    // Live preview is read from get_live.php only and is not saved here.
     // ==========================================
 
-        function getReadingDate(row) {
+    function getReadingDate(row) {
         const timeValue = row.display_time || row.reading_time || row.recorded_at;
 
         if (!timeValue) return new Date();
 
-        // MySQL DATETIME format: "2026-06-30 19:47:00"
-        // Convert to browser-safe local Date format.
-        if (typeof timeValue === "string" && timeValue.includes(" ")) {
-            return new Date(timeValue.replace(" ", "T"));
+        if (typeof timeValue === 'string' && timeValue.includes(' ')) {
+            return new Date(timeValue.replace(' ', 'T'));
         }
 
         return new Date(timeValue);
@@ -809,111 +909,257 @@ document.addEventListener('DOMContentLoaded', () => {
         const ts = getReadingDate(row);
 
         return ts.toLocaleString(undefined, {
-            dateStyle: "short",
-            timeStyle: "medium"
+            dateStyle: 'short',
+            timeStyle: 'medium'
         });
+    }
+
+    function statusClassFromText(status) {
+        const s = String(status || '').toLowerCase();
+
+        if (s.includes('critical') || s.includes('high')) return 'critical';
+        if (s.includes('warning') || s.includes('moderate')) return 'warning';
+        if (s.includes('normal') || s.includes('low')) return 'normal';
+
+        return 'normal';
+    }
+
+    function displayStatusText(status) {
+        const s = String(status || '').trim();
+
+        if (!s) return 'NORMAL';
+        if (s.toLowerCase() === 'high risk') return 'CRITICAL';
+
+        return s.replace(' Risk', '').toUpperCase();
     }
 
     // ── History Table ─────────────────────────────────────
     const historyTbody = document.getElementById('history-table-body');
-    let currentPage    = 1;
-    let currentRange   = '24h';
 
-    async function loadHistory(page = 1) {
+    let currentPage = 1;
+
+    let currentHistoryFilters = {
+        range: 'all',
+        status: 'all',
+        node: 'all'
+    };
+
+    async function loadHistory(page = 1, filters = currentHistoryFilters) {
         if (!historyTbody) return;
+
+        currentPage = page;
+
         historyTbody.innerHTML = `
-            <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">
-                <i class="ph ph-spinner-gap" style="animation:spin 1s linear infinite;font-size:1.5rem;display:block;margin-bottom:.5rem;"></i>
-                Loading data from database...
-            </td></tr>`;
+            <tr>
+                <td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">
+                    <i class="ph ph-spinner-gap" style="animation:spin 1s linear infinite;font-size:1.5rem;display:block;margin-bottom:.5rem;"></i>
+                    Loading data from database...
+                </td>
+            </tr>
+        `;
+
         try {
-            const res  = await fetch(`sensor_api.php?action=history&limit=50&page=${page}`);
+            const params = new URLSearchParams({
+                action: 'history',
+                limit: '50',
+                page: String(page),
+                range: filters.range || 'all',
+                status: filters.status || 'all',
+                node: filters.node || 'all'
+            });
+
+            const res = await fetch(`sensor_api.php?${params.toString()}`);
             const data = await res.json();
 
-            if (!data.success || !data.data.length) {
+            if (!data.success || !data.data || !data.data.length) {
                 historyTbody.innerHTML = `
-                    <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">
-                        <i class="ph ph-plugs" style="font-size:2rem;margin-bottom:.5rem;display:block;"></i>
-                        No historical data yet. Connect hardware to start logging.
-                    </td></tr>`;
+                    <tr>
+                        <td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">
+                            <i class="ph ph-plugs" style="font-size:2rem;margin-bottom:.5rem;display:block;"></i>
+                            No historical data found for the selected filter.
+                        </td>
+                    </tr>
+                `;
+
+                const paginationEl = document.getElementById('history-pagination');
+                if (paginationEl) paginationEl.innerHTML = '';
                 return;
             }
 
             historyTbody.innerHTML = data.data.map(row => {
                 const tsStr = formatReadingTime(row);
-                const badge  = `<span class="status-badge ${row.status}">${row.status}</span>`;
-                const fmt    = (v, d=1) => v !== null ? parseFloat(v).toFixed(d) : '—';
-                return `<tr>
-                    <td>${tsStr}</td>
-                    <td>${row.sensor_node}</td>
-                    <td>${fmt(row.temperature)}</td>
-                    <td>${fmt(row.turbidity, 2)}</td>
-                    <td>${fmt(row.ph, 2)}</td>
-                    <td>${fmt(row.tds, 0)}</td>
-                    <td>${badge}</td>
-                </tr>`;
+                const finalStatus = row.status || row.risk_level || row.final_status || 'Normal';
+                const badgeClass = statusClassFromText(finalStatus);
+                const badgeText = displayStatusText(finalStatus);
+
+                const fmt = (v, d = 1) => {
+                    if (v === null || v === undefined || v === '') return '—';
+                    const num = parseFloat(v);
+                    if (!Number.isFinite(num)) return '—';
+                    return num.toFixed(d);
+                };
+
+                return `
+                    <tr>
+                        <td>${tsStr}</td>
+                        <td>${row.sensor_node ?? '—'}</td>
+                        <td>${fmt(row.temperature)}</td>
+                        <td>${fmt(row.turbidity, 2)}</td>
+                        <td>${fmt(row.ph, 2)}</td>
+                        <td>${fmt(row.tds, 0)}</td>
+                        <td><span class="status-badge ${badgeClass}">${badgeText}</span></td>
+                    </tr>
+                `;
             }).join('');
 
-            // Update pagination if controls exist
             const paginationEl = document.getElementById('history-pagination');
+
             if (paginationEl && data.meta) {
                 currentPage = data.meta.page;
+
                 paginationEl.innerHTML = `
                     <span style="color:var(--text-muted);font-size:14px;">
                         Page ${data.meta.page} of ${data.meta.total_pages} &nbsp;|&nbsp; ${data.meta.total} readings
                     </span>
                     <div style="display:flex;gap:8px;">
-                        <button class="btn btn-outline" ${page <= 1 ? 'disabled' : ''} onclick="window._loadHistory(${page-1})">
+                        <button class="btn btn-outline" ${page <= 1 ? 'disabled' : ''} onclick="window._loadHistory(${page - 1})">
                             <i class="ph ph-caret-left"></i> Prev
                         </button>
-                        <button class="btn btn-outline" ${page >= data.meta.total_pages ? 'disabled' : ''} onclick="window._loadHistory(${page+1})">
+                        <button class="btn btn-outline" ${page >= data.meta.total_pages ? 'disabled' : ''} onclick="window._loadHistory(${page + 1})">
                             Next <i class="ph ph-caret-right"></i>
                         </button>
-                    </div>`;
+                    </div>
+                `;
             }
-
         } catch (err) {
             historyTbody.innerHTML = `
-                <tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--danger);">
-                    <i class="ph ph-warning" style="font-size:1.5rem;display:block;margin-bottom:.5rem;"></i>
-                    Could not load data: ${err.message}
-                </td></tr>`;
+                <tr>
+                    <td colspan="7" style="text-align:center;padding:2rem;color:var(--danger);">
+                        <i class="ph ph-warning" style="font-size:1.5rem;display:block;margin-bottom:.5rem;"></i>
+                        Could not load data: ${err.message}
+                    </td>
+                </tr>
+            `;
         }
     }
 
-    // Expose for pagination buttons
-    window._loadHistory = loadHistory;
+    window._loadHistory = function(page = 1) {
+        loadHistory(page, currentHistoryFilters);
+    };
+
+    // ── History Filter Popup + Export Sync ─────────────────
+    const historyFilterBtn = document.getElementById('history-filter-btn');
+    const historyFilterMenu = document.getElementById('history-filter-menu');
+    const historyApplyFilter = document.getElementById('history-apply-filter');
+    const historyResetFilter = document.getElementById('history-reset-filter');
+
+    const historyRangeSelect = document.getElementById('history-range-select');
+    const historyStatusSelect = document.getElementById('history-status-select');
+    const historyNodeSelect = document.getElementById('history-node-select');
+    const exportBtn = document.getElementById('export-btn');
+
+    function syncExportLink() {
+        if (!exportBtn) return;
+
+        const params = new URLSearchParams({
+            range: currentHistoryFilters.range,
+            status: currentHistoryFilters.status,
+            node: currentHistoryFilters.node
+        });
+
+        exportBtn.href = `export_csv.php?${params.toString()}`;
+    }
+
+    function applyHistoryFilters() {
+        currentHistoryFilters = {
+            range: historyRangeSelect?.value || 'all',
+            status: historyStatusSelect?.value || 'all',
+            node: historyNodeSelect?.value || 'all'
+        };
+
+        currentPage = 1;
+        syncExportLink();
+        loadHistory(1, currentHistoryFilters);
+
+        if (historyFilterMenu) {
+            historyFilterMenu.classList.remove('open');
+        }
+    }
+
+    function resetHistoryFilters() {
+        if (historyRangeSelect) historyRangeSelect.value = 'all';
+        if (historyStatusSelect) historyStatusSelect.value = 'all';
+        if (historyNodeSelect) historyNodeSelect.value = 'all';
+
+        currentHistoryFilters = {
+            range: 'all',
+            status: 'all',
+            node: 'all'
+        };
+
+        currentPage = 1;
+        syncExportLink();
+        loadHistory(1, currentHistoryFilters);
+
+        if (historyFilterMenu) {
+            historyFilterMenu.classList.remove('open');
+        }
+    }
+
+    if (historyFilterBtn && historyFilterMenu) {
+        historyFilterBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            historyFilterMenu.classList.toggle('open');
+        });
+
+        historyFilterMenu.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        document.addEventListener('click', () => {
+            historyFilterMenu.classList.remove('open');
+        });
+    }
+
+    if (historyApplyFilter) {
+        historyApplyFilter.addEventListener('click', applyHistoryFilters);
+    }
+
+    if (historyResetFilter) {
+        historyResetFilter.addEventListener('click', resetHistoryFilters);
+    }
+
+    syncExportLink();
 
     // ── Chart Data from DB ────────────────────────────────
     async function loadChartFromDB(range = '24h') {
         try {
-            const res  = await fetch(`sensor_api.php?action=chart&range=${range}`);
+            const res = await fetch(`sensor_api.php?action=chart&range=${encodeURIComponent(range)}`);
             const data = await res.json();
-            if (!data.success || !data.data.length) return;
 
-            // Replace chart data with DB values
+            if (!data.success || !data.data || !data.data.length) return;
+
             chartTimeLabels.length = 0;
             tempSeries.length = 0;
             turbSeries.length = 0;
-            tdsSeries.length  = 0;
-            phSeries.length   = 0;
+            tdsSeries.length = 0;
+            phSeries.length = 0;
 
             data.data.forEach(row => {
                 const ts = getReadingDate(row);
-                
+
                 chartTimeLabels.push(ts.toLocaleTimeString(undefined, {
                     hour: '2-digit',
                     minute: '2-digit'
                 }));
-                
+
                 tempSeries.push(row.temperature !== null ? parseFloat(row.temperature) : null);
-                turbSeries.push(row.turbidity   !== null ? parseFloat(row.turbidity)   : null);
-                tdsSeries.push(row.tds          !== null ? parseFloat(row.tds)         : null);
-                phSeries.push(row.ph            !== null ? parseFloat(row.ph)          : null);
+                turbSeries.push(row.turbidity !== null ? parseFloat(row.turbidity) : null);
+                tdsSeries.push(row.tds !== null ? parseFloat(row.tds) : null);
+                phSeries.push(row.ph !== null ? parseFloat(row.ph) : null);
             });
 
             trendsChart.update();
-
         } catch (err) {
             console.warn('Could not load chart data from DB:', err);
         }
@@ -922,91 +1168,87 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Stats Summary ─────────────────────────────────────
     async function loadStats(range = '24h') {
         try {
-            const res  = await fetch(`sensor_api.php?action=stats&range=${range}`);
+            const res = await fetch(`sensor_api.php?action=stats&range=${encodeURIComponent(range)}`);
             const data = await res.json();
+
             if (!data.success || !data.data) return;
 
             const s = data.data;
             const statsEl = document.getElementById('db-stats-summary');
+
             if (!statsEl) return;
 
-            const fmtRow = (label, avg, min, max, unit) =>
-                `<tr>
+            const fmtRow = (label, avg, min, max, unit) => `
+                <tr>
                     <td style="font-weight:500;color:var(--text-main)">${label}</td>
                     <td>${avg ?? '—'} ${unit}</td>
                     <td>${min ?? '—'} ${unit}</td>
                     <td>${max ?? '—'} ${unit}</td>
-                </tr>`;
+                </tr>
+            `;
 
             statsEl.innerHTML = `
                 <table style="width:100%;font-size:14px;border-collapse:collapse;">
                     <thead>
                         <tr style="color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px;">
                             <th style="text-align:left;padding:8px 0;">Parameter</th>
-                            <th>Avg</th><th>Min</th><th>Max</th>
+                            <th>Avg</th>
+                            <th>Min</th>
+                            <th>Max</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${fmtRow('Temperature', s.avg_temp, s.min_temp, s.max_temp, '°C')}
-                        ${fmtRow('Turbidity',   s.avg_turb, s.min_turb, s.max_turb, 'NTU')}
-                        ${fmtRow('TDS',         s.avg_tds,  s.min_tds,  s.max_tds,  'ppm')}
-                        ${fmtRow('pH',          s.avg_ph,   s.min_ph,   s.max_ph,   '')}
+                        ${fmtRow('Turbidity', s.avg_turb, s.min_turb, s.max_turb, 'NTU')}
+                        ${fmtRow('TDS', s.avg_tds, s.min_tds, s.max_tds, 'ppm')}
+                        ${fmtRow('pH', s.avg_ph, s.min_ph, s.max_ph, '')}
                     </tbody>
                 </table>
                 <p style="margin-top:12px;font-size:13px;color:var(--text-muted);">
                     <i class="ph ph-database"></i> ${s.total_readings ?? 0} readings in last ${range} &nbsp;|&nbsp;
                     <span style="color:var(--warning)">${s.warning_count ?? 0} warnings</span> &nbsp;
                     <span style="color:var(--danger)">${s.critical_count ?? 0} critical</span>
-                </p>`;
-        } catch(err) {
+                </p>
+            `;
+        } catch (err) {
             console.warn('Stats load error:', err);
         }
     }
 
-
-    // ── Time-filter for chart/history ─────────────────────
+    // ── Analytics Time Filter ─────────────────────────────
     const timeFilterSelect = document.querySelector('.time-filter');
+    let currentAnalyticsRange = '24h';
 
-        if (timeFilterSelect) {
-            timeFilterSelect.addEventListener('change', () => {
-                const map = {
-                    'Last 24 Hours': '24h',
-                    'Last 7 Days': '7d',
-                    'Last 30 Days': '30d'
-                };
+    if (timeFilterSelect) {
+        timeFilterSelect.addEventListener('change', () => {
+            const map = {
+                'Last 24 Hours': '24h',
+                'Last 7 Days': '7d',
+                'Last 30 Days': '30d'
+            };
 
-                const range = map[timeFilterSelect.value] || '24h';
+            currentAnalyticsRange = map[timeFilterSelect.value] || '24h';
 
-                currentRange = range;
-                loadChartFromDB(range);
-                loadStats(range);
-            });
-        }
-
-    // ── Nav change: load history when switching to History tab ──
-    navItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const target = item.getAttribute('data-target');
-            if (target === 'history') {
-                loadHistory(1);
-            }
+            loadChartFromDB(currentAnalyticsRange);
+            loadStats(currentAnalyticsRange);
         });
-    });
+    }
 
     // ── Initial load ──────────────────────────────────────
-    loadChartFromDB('24h');
-    loadStats('24h');
-    // Load history immediately if we start on that tab
+    loadChartFromDB(currentAnalyticsRange);
+    loadStats(currentAnalyticsRange);
+
     if (document.getElementById('history')?.classList.contains('active')) {
-        loadHistory(1);
+        loadHistory(1, currentHistoryFilters);
     }
 
     // Refresh history & stats every 30 seconds in the background
     setInterval(() => {
-    if (document.getElementById('history')?.classList.contains('active')) {
-        loadHistory(currentPage);
-    }
-    loadStats(currentRange);
-}, 30000);
+        if (document.getElementById('history')?.classList.contains('active')) {
+            loadHistory(currentPage, currentHistoryFilters);
+        }
+
+        loadStats(currentAnalyticsRange);
+    }, 30000);
 
 });

@@ -608,11 +608,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     cssClass = 'warning';
                 }
 
-                if (result.risk === 'High Risk') {
+                if (result.risk === 'High Risk' || result.risk === 'Critical Risk') {
                     icon = 'ph-x-circle';
                     cssClass = 'critical';
                 }
-
                 listEl.innerHTML = `
                     <div class="insight-item ${cssClass}" style="display:block; padding:22px;">
                         <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
@@ -788,8 +787,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ==========================================
     // DATABASE INTEGRATION
-    // Loads history table + chart from sensor_api.php
-    // and syncs live hardware readings back to DB.
+    // Loads saved 15-minute average readings from sensor_api.php.
+    // Live preview is read from get_live.php only and is not saved here.
     // ==========================================
 
         function getReadingDate(row) {
@@ -964,29 +963,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // ── Auto-save live hardware reading to DB ─────────────
-    // Intercept pushLiveChartSample to also persist to DB
-    const _origPushLive = pushLiveChartSample;
-    let _dbSaveThrottle = 0;
-    window._pushLiveAndSave = function(sample) {
-        _origPushLive(sample);
-        // Save to DB at most once every 5 seconds to avoid flooding
-        const now = Date.now();
-        if (now - _dbSaveThrottle > 5000) {
-            _dbSaveThrottle = now;
-            fetch('sensor_api.php?action=manual', {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({
-                    sensor_node: 'NODE-01',
-                    temperature: sample.temperature ?? null,
-                    turbidity:   sample.turbidity   ?? null,
-                    tds:         sample.tds         ?? null,
-                    ph:          sample.ph          ?? null,
-                })
-            }).catch(() => {}); // silent fail — hardware connection is primary
-        }
-    };
 
     // ── Time-filter for chart/history ─────────────────────
     const timeFilterSelect = document.querySelector('.time-filter');

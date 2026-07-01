@@ -56,20 +56,23 @@ try {
  * Returns the most recent reading for each sensor node.
  */
 function handleLatest(PDO $pdo): void {
+    $timeExpr = sensorTimeExpr($pdo, 'r.');
+    $timeExprUnqualified = sensorTimeExpr($pdo);
+
     $stmt = $pdo->query(
-        'SELECT 
+        "SELECT
             r.*,
-            COALESCE(r.reading_time, r.recorded_at) AS display_time
+            $timeExpr AS display_time
            FROM sensor_readings r
      INNER JOIN (
             SELECT 
                 sensor_node, 
-                MAX(COALESCE(reading_time, recorded_at)) AS max_time
+                MAX($timeExprUnqualified) AS max_time
               FROM sensor_readings
           GROUP BY sensor_node
           ) latest ON r.sensor_node = latest.sensor_node
-                  AND COALESCE(r.reading_time, r.recorded_at) = latest.max_time
-         ORDER BY r.sensor_node'
+                  AND $timeExpr = latest.max_time
+         ORDER BY r.sensor_node"
     );
 
     echo json_encode(['success' => true, 'data' => $stmt->fetchAll()]);
@@ -99,8 +102,8 @@ function handleHistory(PDO $pdo): void {
         $status = 'all';
     }
 
-    $timeExpr = "COALESCE(reading_time, recorded_at)";
-    $statusExpr = "COALESCE(risk_level, status)";
+    $timeExpr = sensorTimeExpr($pdo);
+    $statusExpr = sensorStatusExpr($pdo);
 
     $where  = [];
     $params = [];
@@ -198,7 +201,12 @@ function handleChart(PDO $pdo): void {
         $maxPoints = 60;
     }
 
-    $where  = "COALESCE(reading_time, recorded_at) >= NOW() - INTERVAL $interval";
+    $timeExpr = sensorTimeExpr($pdo);
+    $selectReadingTime = sensorHasColumn($pdo, 'reading_time') ? 'reading_time' : 'NULL AS reading_time';
+    $selectRecordedAt = sensorHasColumn($pdo, 'recorded_at') ? 'recorded_at' : 'NULL AS recorded_at';
+    $selectStatus = sensorHasColumn($pdo, 'status') ? 'status' : sensorStatusExpr($pdo) . ' AS status';
+
+    $where  = "$timeExpr >= NOW() - INTERVAL $interval";
     $params = [];
 
     if ($node) {
@@ -220,13 +228,13 @@ function handleChart(PDO $pdo): void {
             turbidity,
             tds,
             ph,
-            status,
-            recorded_at,
-            reading_time,
-            COALESCE(reading_time, recorded_at) AS display_time
+            $selectStatus,
+            $selectRecordedAt,
+            $selectReadingTime,
+            $timeExpr AS display_time
            FROM sensor_readings
           WHERE $where
-          ORDER BY COALESCE(reading_time, recorded_at) ASC"
+          ORDER BY $timeExpr ASC"
     );
 
     $stmt->execute($params);
@@ -262,6 +270,9 @@ function handleStats(PDO $pdo): void {
         $interval = '24 HOUR';
     }
 
+    $timeExpr = sensorTimeExpr($pdo);
+    $statusExpr = sensorStatusExpr($pdo);
+
     $stmt = $pdo->prepare(
         "SELECT
             COUNT(*)                   AS total_readings,
@@ -277,10 +288,10 @@ function handleStats(PDO $pdo): void {
             ROUND(AVG(ph),          2) AS avg_ph,
             ROUND(MIN(ph),          2) AS min_ph,
             ROUND(MAX(ph),          2) AS max_ph,
-            SUM(status = 'warning')    AS warning_count,
-            SUM(status = 'critical')   AS critical_count
+            SUM(LOWER($statusExpr) LIKE '%warning%' OR LOWER($statusExpr) LIKE '%moderate%') AS warning_count,
+            SUM(LOWER($statusExpr) LIKE '%critical%' OR LOWER($statusExpr) LIKE '%high%') AS critical_count
          FROM sensor_readings
-        WHERE COALESCE(reading_time, recorded_at) >= NOW() - INTERVAL $interval"
+        WHERE $timeExpr >= NOW() - INTERVAL $interval"
     );
 
     $stmt->execute();
@@ -394,4 +405,49 @@ function jsonError(int $code, string $msg): never {
     http_response_code($code);
     echo json_encode(['success' => false, 'message' => $msg]);
     exit;
+}
+
+function sensorColumns(PDO $pdo): array {
+    static $columns = null;
+
+    if ($columns === null) {
+        $stmt = $pdo->query('SHOW COLUMNS FROM sensor_readings');
+        $columns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    return $columns;
+}
+
+function sensorHasColumn(PDO $pdo, string $column): bool {
+    return in_array($column, sensorColumns($pdo), true);
+}
+
+function sensorTimeExpr(PDO $pdo, string $prefix = ''): string {
+    $hasReadingTime = sensorHasColumn($pdo, 'reading_time');
+    $hasRecordedAt = sensorHasColumn($pdo, 'recorded_at');
+
+    if ($hasReadingTime && $hasRecordedAt) {
+        return "COALESCE({$prefix}reading_time, {$prefix}recorded_at)";
+    }
+
+    if ($hasReadingTime) {
+        return "{$prefix}reading_time";
+    }
+
+    return "{$prefix}recorded_at";
+}
+
+function sensorStatusExpr(PDO $pdo): string {
+    $hasRiskLevel = sensorHasColumn($pdo, 'risk_level');
+    $hasStatus = sensorHasColumn($pdo, 'status');
+
+    if ($hasRiskLevel && $hasStatus) {
+        return 'COALESCE(risk_level, status)';
+    }
+
+    if ($hasRiskLevel) {
+        return 'risk_level';
+    }
+
+    return 'status';
 }

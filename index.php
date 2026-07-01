@@ -62,7 +62,7 @@
                     </div>
                 </div>
                 <div class="header-actions">
-                    <div id="db-stats-summary" style="font-size:13px;color:var(--text-muted);display:none;"></div>
+                    <div id="db-stats-summary-header" style="font-size:13px;color:var(--text-muted);display:none;"></div>
                     <div class="system-status">
                         <div class="status-indicator active"></div>
                         <span>System Online</span>
@@ -190,8 +190,20 @@
                     <div class="panel-header">
                         <h3>Historical Logs</h3>
                         <div class="header-actions-inline">
-                            <a href="export_csv.php?range=24h" class="btn btn-outline" id="export-btn"><i class="ph ph-download-simple"></i> Export CSV</a>
-                            <button class="btn btn-primary"><i class="ph ph-funnel"></i> Filter</button>
+                            <select id="history-range-select" class="history-filter">
+                                <option value="all" selected>All</option>
+                                <option value="24h">Last 24 Hours</option>
+                                <option value="7d">Last 7 Days</option>
+                                <option value="30d">Last 30 Days</option>
+                            </select>
+
+                            <button id="history-filter-btn" type="button" class="btn btn-primary">
+                                <i class="ph ph-funnel"></i> Filter
+                            </button>
+
+                            <a href="export_csv.php?range=all" class="btn btn-outline" id="export-btn">
+                                <i class="ph ph-download-simple"></i> Export CSV
+                            </a>
                         </div>
                     </div>
                     <div class="table-responsive">

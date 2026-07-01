@@ -919,9 +919,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (s.includes('critical') || s.includes('high')) return 'critical';
         if (s.includes('warning') || s.includes('moderate')) return 'warning';
-        if (s.includes('normal') || s.includes('low')) return 'normal';
+        if (s.includes('normal') || s.includes('low')) return 'optimal';
 
-        return 'normal';
+        return 'optimal';
     }
 
     function displayStatusText(status) {

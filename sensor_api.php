@@ -80,45 +80,83 @@ function handleLatest(PDO $pdo): void {
  * Returns paginated historical readings.
  */
 function handleHistory(PDO $pdo): void {
-    $node  = $_GET['node']  ?? null;
-    $limit = min((int)($_GET['limit'] ?? 100), 1000);
-    $from  = $_GET['from']  ?? null;
-    $to    = $_GET['to']    ?? null;
-    $page  = max(1, (int)($_GET['page'] ?? 1));
+    $node   = $_GET['node']   ?? 'all';
+    $range  = $_GET['range']  ?? 'all';
+    $status = $_GET['status'] ?? 'all';
+
+    $limit  = min((int)($_GET['limit'] ?? 100), 1000);
+    $page   = max(1, (int)($_GET['page'] ?? 1));
     $offset = ($page - 1) * $limit;
+
+    $allowedRanges = ['all', '24h', '7d', '30d'];
+    $allowedStatus = ['all', 'normal', 'warning', 'critical'];
+
+    if (!in_array($range, $allowedRanges, true)) {
+        $range = 'all';
+    }
+
+    if (!in_array($status, $allowedStatus, true)) {
+        $status = 'all';
+    }
+
+    $timeExpr = "COALESCE(reading_time, recorded_at)";
+    $statusExpr = "COALESCE(risk_level, status)";
 
     $where  = [];
     $params = [];
 
-    if ($node) {
-        $where[] = 'sensor_node = :node';
+    if ($range === '24h') {
+        $where[] = "$timeExpr >= NOW() - INTERVAL 24 HOUR";
+    } elseif ($range === '7d') {
+        $where[] = "$timeExpr >= NOW() - INTERVAL 7 DAY";
+    } elseif ($range === '30d') {
+        $where[] = "$timeExpr >= NOW() - INTERVAL 30 DAY";
+    }
+
+    if ($node !== 'all' && $node !== '') {
+        $where[] = "sensor_node = :node";
         $params[':node'] = $node;
     }
 
-    if ($from) {
-        $where[] = 'COALESCE(reading_time, recorded_at) >= :from';
-        $params[':from'] = $from . ' 00:00:00';
+    if ($status === 'normal') {
+        $where[] = "(
+            LOWER($statusExpr) LIKE '%normal%' OR
+            LOWER($statusExpr) LIKE '%low%'
+        )";
+    } elseif ($status === 'warning') {
+        $where[] = "(
+            LOWER($statusExpr) LIKE '%warning%' OR
+            LOWER($statusExpr) LIKE '%moderate%'
+        )";
+    } elseif ($status === 'critical') {
+        $where[] = "(
+            LOWER($statusExpr) LIKE '%critical%' OR
+            LOWER($statusExpr) LIKE '%high%'
+        )";
     }
 
-    if ($to) {
-        $where[] = 'COALESCE(reading_time, recorded_at) <= :to';
-        $params[':to'] = $to . ' 23:59:59';
-    }
+    $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
 
-    $sql = 'SELECT 
-                *,
-                COALESCE(reading_time, recorded_at) AS display_time
-            FROM sensor_readings'
-         . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
-         . ' ORDER BY COALESCE(reading_time, recorded_at) DESC'
-         . " LIMIT $limit OFFSET $offset";
+    $sql = "
+        SELECT
+            *,
+            $timeExpr AS display_time,
+            $statusExpr AS final_status
+        FROM sensor_readings
+        $whereSql
+        ORDER BY $timeExpr DESC
+        LIMIT $limit OFFSET $offset
+    ";
 
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    $rows = $stmt->fetchAll();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $countSql = 'SELECT COUNT(*) FROM sensor_readings'
-              . ($where ? ' WHERE ' . implode(' AND ', $where) : '');
+    $countSql = "
+        SELECT COUNT(*)
+        FROM sensor_readings
+        $whereSql
+    ";
 
     $countStmt = $pdo->prepare($countSql);
     $countStmt->execute($params);
@@ -131,7 +169,12 @@ function handleHistory(PDO $pdo): void {
             'total'       => $total,
             'page'        => $page,
             'limit'       => $limit,
-            'total_pages' => (int)ceil($total / $limit),
+            'total_pages' => max(1, (int)ceil($total / $limit)),
+        ],
+        'filters' => [
+            'range'  => $range,
+            'status' => $status,
+            'node'   => $node,
         ]
     ]);
 }

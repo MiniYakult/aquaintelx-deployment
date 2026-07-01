@@ -996,19 +996,22 @@ body {
 
 .history-actions {
     position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .history-filter-menu {
     position: absolute;
     top: calc(100% + 12px);
     right: 0;
-    width: 280px;
-    padding: 18px;
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
+    width: 320px;
+    padding: 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 16px;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
-    z-index: 50;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+    z-index: 9999;
     display: none;
 }
 
@@ -1017,43 +1020,68 @@ body {
 }
 
 .history-filter-menu h4 {
-    margin: 0 0 14px;
-    font-size: 16px;
+    margin: 0 0 18px;
+    font-size: 18px;
+    font-weight: 700;
     color: var(--text-main);
 }
 
 .filter-group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    margin-bottom: 14px;
+    gap: 8px;
+    margin-bottom: 16px;
 }
 
 .filter-group label {
     font-size: 12px;
     color: var(--text-muted);
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.6px;
 }
 
 .filter-group select {
     width: 100%;
-    padding: 10px 12px;
+    height: 44px;
+    padding: 0 12px;
     border-radius: 10px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    background: var(--bg-main);
     color: var(--text-main);
     outline: none;
+    color-scheme: dark;
+}
+
+.filter-group select option {
+    background: #151e32;
+    color: #e2e8f0;
 }
 
 .filter-actions {
     display: flex;
-    gap: 10px;
-    margin-top: 4px;
+    gap: 12px;
+    margin-top: 18px;
 }
 
 .filter-actions .btn {
     flex: 1;
     justify-content: center;
+}
+
+[data-theme="light"] .history-filter-menu {
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+}
+
+[data-theme="light"] .filter-group select {
+    background: #ffffff;
+    color: #1e293b;
+    color-scheme: light;
+}
+
+[data-theme="light"] .filter-group select option {
+    background: #ffffff;
+    color: #1e293b;
 }

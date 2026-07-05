@@ -34,16 +34,23 @@ if (!is_dir($aiFolder)) {
 
 $python = getenv('PYTHON_BIN');
 
+$python = getenv('PYTHON_BIN');
+
 if (!$python) {
     if (PHP_OS_FAMILY === 'Windows') {
-        $localVenvPython = __DIR__ . DIRECTORY_SEPARATOR . '.venv' . DIRECTORY_SEPARATOR . 'Scripts' . DIRECTORY_SEPARATOR . 'python.exe';
+        // Support both possible local virtual environment folder names
+        $localVenvPython1 = __DIR__ . DIRECTORY_SEPARATOR . '.venv' . DIRECTORY_SEPARATOR . 'Scripts' . DIRECTORY_SEPARATOR . 'python.exe';
+        $localVenvPython2 = __DIR__ . DIRECTORY_SEPARATOR . 'venv' . DIRECTORY_SEPARATOR . 'Scripts' . DIRECTORY_SEPARATOR . 'python.exe';
 
-        if (file_exists($localVenvPython)) {
-            $python = $localVenvPython;
+        if (file_exists($localVenvPython1)) {
+            $python = $localVenvPython1;
+        } elseif (file_exists($localVenvPython2)) {
+            $python = $localVenvPython2;
         } else {
             $python = 'python';
         }
     } else {
+        // Keep Railway/Linux behavior
         if (file_exists('/opt/venv/bin/python')) {
             $python = '/opt/venv/bin/python';
         } else {
@@ -75,7 +82,11 @@ if ($output === null) {
 
 $risk = trim($output);
 
-$validRisks = ["Low Risk", "Moderate Risk", "High Risk"];
+if ($risk === "High Risk") {
+    $risk = "Critical Risk";
+}
+
+$validRisks = ["Low Risk", "Moderate Risk", "Critical Risk"];
 
 if (!in_array($risk, $validRisks, true)) {
     echo json_encode([
@@ -92,7 +103,7 @@ if ($risk === "Low Risk") {
     $suggestion = "Water quality appears stable. Continue regular monitoring.";
 } elseif ($risk === "Moderate Risk") {
     $suggestion = "Some readings show possible irregularity. Re-test the water before drinking.";
-} elseif ($risk === "High Risk") {
+} elseif ($risk === "Critical Risk") {
     $suggestion = "Possible anomaly detected. Avoid drinking and inspect the water source immediately.";
 }
 

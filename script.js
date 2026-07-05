@@ -700,15 +700,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error(result.message);
                 }
 
+                const riskLabel = normalizeRiskLabel(result.risk);
+
                 let icon = 'ph-check-circle';
                 let cssClass = 'normal';
 
-                if (result.risk === 'Moderate Risk') {
+                if (riskLabel === 'Moderate Risk') {
                     icon = 'ph-warning-circle';
                     cssClass = 'warning';
                 }
 
-                if (result.risk === 'High Risk' || result.risk === 'Critical Risk') {
+                if (riskLabel === 'Critical Risk') {
                     icon = 'ph-x-circle';
                     cssClass = 'critical';
                 }
@@ -717,7 +719,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="insight-item ${cssClass}" style="display:block; padding:22px;">
                         <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
                             <i class="ph ${icon}" style="font-size:34px;"></i>
-                            <h4 style="font-size:20px; margin:0;">${result.risk}</h4>
+                            <h4 style="font-size:20px; margin:0;">${riskLabel}</h4>
                         </div>
 
                         <p style="font-size:15px; line-height:1.6; margin-bottom:16px;">
@@ -914,23 +916,66 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function normalizeRiskLabel(status) {
+    const s = String(status || '').trim().toLowerCase();
+
+        if (
+            s === 'normal' ||
+            s === 'low' ||
+            s === 'low risk' ||
+            s === 'safe' ||
+            s === 'optimal'
+        ) {
+            return 'Low Risk';
+        }
+
+        if (
+            s === 'moderate' ||
+            s === 'moderate risk' ||
+            s === 'warning' ||
+            s === 'caution'
+        ) {
+            return 'Moderate Risk';
+        }
+
+        if (
+            s === 'critical' ||
+            s === 'critical risk' ||
+            s === 'high' ||
+            s === 'high risk' ||
+            s === 'danger' ||
+            s === 'unsafe'
+        ) {
+            return 'Critical Risk';
+        }
+
+        if (s.includes('critical') || s.includes('high') || s.includes('danger') || s.includes('unsafe')) {
+            return 'Critical Risk';
+        }
+
+        if (s.includes('moderate') || s.includes('warning') || s.includes('caution')) {
+            return 'Moderate Risk';
+        }
+
+        if (s.includes('normal') || s.includes('low') || s.includes('safe') || s.includes('optimal')) {
+            return 'Low Risk';
+        }
+
+        return 'Moderate Risk';
+    }
+
     function statusClassFromText(status) {
-        const s = String(status || '').toLowerCase();
+        const label = normalizeRiskLabel(status);
 
-        if (s.includes('critical') || s.includes('high')) return 'critical';
-        if (s.includes('warning') || s.includes('moderate')) return 'warning';
-        if (s.includes('normal') || s.includes('low')) return 'optimal';
+        if (label === 'Critical Risk') return 'critical';
+        if (label === 'Moderate Risk') return 'warning';
+        if (label === 'Low Risk') return 'optimal';
 
-        return 'optimal';
+        return 'warning';
     }
 
     function displayStatusText(status) {
-        const s = String(status || '').trim();
-
-        if (!s) return 'NORMAL';
-        if (s.toLowerCase() === 'high risk') return 'CRITICAL';
-
-        return s.replace(' Risk', '').toUpperCase();
+        return normalizeRiskLabel(status);
     }
 
     // ── History Table ─────────────────────────────────────
@@ -988,9 +1033,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             historyTbody.innerHTML = data.data.map(row => {
                 const tsStr = formatReadingTime(row);
-                const finalStatus = row.status || row.risk_level || row.final_status || 'Normal';
-                const badgeClass = statusClassFromText(finalStatus);
-                const badgeText = displayStatusText(finalStatus);
+                const finalStatus = row.risk_level || row.final_status || row.status || 'Moderate Risk';
+                const badgeText = normalizeRiskLabel(finalStatus);
+                const badgeClass = statusClassFromText(badgeText);
 
                 const fmt = (v, d = 1) => {
                     if (v === null || v === undefined || v === '') return '—';
@@ -1206,8 +1251,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 </table>
                 <p style="margin-top:12px;font-size:13px;color:var(--text-muted);">
                     <i class="ph ph-database"></i> ${s.total_readings ?? 0} readings in last ${range} &nbsp;|&nbsp;
-                    <span style="color:var(--warning)">${s.warning_count ?? 0} warnings</span> &nbsp;
-                    <span style="color:var(--danger)">${s.critical_count ?? 0} critical</span>
+                    <span style="color:var(--warning)">${s.warning_count ?? 0} moderate risk</span> &nbsp;
+                    <span style="color:var(--danger)">${s.critical_count ?? 0} critical risk</span>
                 </p>
             `;
         } catch (err) {

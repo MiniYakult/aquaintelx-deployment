@@ -1,9 +1,9 @@
 <?php
 // ============================================================
 // export_csv.php — Download filtered AquaIntelX readings as CSV
-// Supports:
+// Supports old and new labels safely:
 // ?range=all|24h|7d|30d
-// ?status=all|normal|warning|critical
+// ?status=all|normal|warning|critical|low|moderate|critical
 // ?node=all|NODE-01
 // ============================================================
 
@@ -16,15 +16,52 @@ $range  = $_GET['range']  ?? 'all';
 $status = $_GET['status'] ?? 'all';
 $node   = $_GET['node']   ?? 'all';
 
-$allowedRanges  = ['all', '24h', '7d', '30d'];
-$allowedStatus  = ['all', 'normal', 'warning', 'critical'];
+$allowedRanges = ['all', '24h', '7d', '30d'];
+
+// Keep old frontend filter values working.
+// Also allow newer naming if you update the dropdown later.
+$allowedStatus = [
+    'all',
+    'normal',
+    'warning',
+    'critical',
+    'low',
+    'moderate',
+    'high',
+    'low risk',
+    'moderate risk',
+    'high risk',
+    'critical risk'
+];
 
 if (!in_array($range, $allowedRanges, true)) {
     $range = 'all';
 }
 
+$status = strtolower(trim((string)$status));
+
 if (!in_array($status, $allowedStatus, true)) {
     $status = 'all';
+}
+
+function normalize_risk_label($risk): string
+{
+    $risk = strtolower(trim((string)$risk));
+
+    if (in_array($risk, ['normal', 'low', 'low risk', 'safe', 'optimal'], true)) {
+        return 'Low Risk';
+    }
+
+    if (in_array($risk, ['warning', 'moderate', 'moderate risk', 'caution'], true)) {
+        return 'Moderate Risk';
+    }
+
+    if (in_array($risk, ['critical', 'critical risk', 'high', 'high risk', 'danger', 'unsafe'], true)) {
+        return 'Critical Risk';
+    }
+
+    // Safe fallback for unknown/blank values
+    return 'Moderate Risk';
 }
 
 try {
@@ -48,8 +85,10 @@ try {
         $timeExpr = "recorded_at";
     }
 
+    // Prefer AI/database risk_level over old status.
+    // NULLIF handles empty string values.
     if ($hasRiskLevel && $hasStatus) {
-        $statusExpr = "COALESCE(risk_level, status)";
+        $statusExpr = "COALESCE(NULLIF(TRIM(risk_level), ''), NULLIF(TRIM(status), ''))";
     } elseif ($hasRiskLevel) {
         $statusExpr = "risk_level";
     } else {
@@ -68,13 +107,14 @@ try {
         $where[] = "$timeExpr >= NOW() - INTERVAL 30 DAY";
     }
 
-    // Status filter
-    if ($status === 'normal') {
-        $where[] = "(LOWER($statusExpr) LIKE '%normal%' OR LOWER($statusExpr) LIKE '%low%')";
-    } elseif ($status === 'warning') {
-        $where[] = "(LOWER($statusExpr) LIKE '%warning%' OR LOWER($statusExpr) LIKE '%moderate%')";
-    } elseif ($status === 'critical') {
-        $where[] = "(LOWER($statusExpr) LIKE '%critical%' OR LOWER($statusExpr) LIKE '%high%')";
+    // Status/risk filter.
+    // Keep old filter names compatible with new risk labels.
+    if ($status === 'normal' || $status === 'low' || $status === 'low risk') {
+        $where[] = "(LOWER($statusExpr) LIKE '%normal%' OR LOWER($statusExpr) LIKE '%low%' OR LOWER($statusExpr) LIKE '%safe%')";
+    } elseif ($status === 'warning' || $status === 'moderate' || $status === 'moderate risk') {
+        $where[] = "(LOWER($statusExpr) LIKE '%warning%' OR LOWER($statusExpr) LIKE '%moderate%' OR LOWER($statusExpr) LIKE '%caution%')";
+    } elseif ($status === 'critical' || $status === 'high' || $status === 'high risk' || $status === 'critical risk') {
+        $where[] = "(LOWER($statusExpr) LIKE '%critical%' OR LOWER($statusExpr) LIKE '%high%' OR LOWER($statusExpr) LIKE '%danger%' OR LOWER($statusExpr) LIKE '%unsafe%')";
     }
 
     // Sensor node filter
@@ -126,15 +166,11 @@ fputcsv($out, [
     'Turbidity (NTU)',
     'TDS (ppm)',
     'pH',
-    'Status'
+    'Risk Level'
 ]);
 
 foreach ($rows as $row) {
-    $statusText = $row['final_status'] ?? '';
-
-    if (strtolower($statusText) === 'high risk') {
-        $statusText = 'Critical Risk';
-    }
+    $riskLevel = normalize_risk_label($row['final_status'] ?? '');
 
     fputcsv($out, [
         $row['display_time'] ?? '',
@@ -143,7 +179,7 @@ foreach ($rows as $row) {
         $row['turbidity'] ?? '',
         $row['tds'] ?? '',
         $row['ph'] ?? '',
-        $statusText,
+        $riskLevel,
     ]);
 }
 

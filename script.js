@@ -1222,11 +1222,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const turbidity = row.turbidity;
             const tds = row.tds;
 
+            const savedRisk = row.risk_level || row.final_status || row.status || '';
+
             const aiParams = new URLSearchParams({
                 temperature: temp ?? '',
                 ph: ph ?? '',
                 turbidity: turbidity ?? '',
-                tds: tds ?? ''
+                tds: tds ?? '',
+                risk_level: savedRisk
             });
 
             const aiRes = await fetch(`ai_predict.php?${aiParams.toString()}`, {

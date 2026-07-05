@@ -22,6 +22,71 @@ if (!is_numeric($temperature) || !is_numeric($ph) || !is_numeric($turbidity) || 
     exit;
 }
 
+$savedRiskInput = $_GET['risk_level'] ?? null;
+
+function normalize_risk_label($risk) {
+    $risk = strtolower(trim((string)$risk));
+
+    if (in_array($risk, ["normal", "low", "low risk", "safe", "optimal"], true)) {
+        return "Low Risk";
+    }
+
+    if (in_array($risk, ["moderate", "moderate risk", "warning", "caution"], true)) {
+        return "Moderate Risk";
+    }
+
+    if (in_array($risk, ["critical", "critical risk", "high", "high risk", "danger", "unsafe"], true)) {
+        return "Critical Risk";
+    }
+
+    return null;
+}
+
+function risk_rank($risk) {
+    $risk = normalize_risk_label($risk);
+
+    if ($risk === "Low Risk") return 1;
+    if ($risk === "Moderate Risk") return 2;
+    if ($risk === "Critical Risk") return 3;
+
+    return 0;
+}
+
+function higher_risk($riskA, $riskB) {
+    $a = normalize_risk_label($riskA);
+    $b = normalize_risk_label($riskB);
+
+    if ($a === null) return $b ?? "Moderate Risk";
+    if ($b === null) return $a;
+
+    return risk_rank($b) > risk_rank($a) ? $b : $a;
+}
+
+function derive_standard_risk($temperature, $ph, $turbidity, $tds): string {
+    $temp = is_numeric($temperature) ? (float)$temperature : null;
+    $phValue = is_numeric($ph) ? (float)$ph : null;
+    $turb = is_numeric($turbidity) ? (float)$turbidity : null;
+    $tdsValue = is_numeric($tds) ? (float)$tds : null;
+
+    if (
+        ($phValue !== null && ($phValue < 6.5 || $phValue > 8.5)) ||
+        ($turb !== null && $turb > 5.0) ||
+        ($tdsValue !== null && $tdsValue > 600)
+    ) {
+        return "Critical Risk";
+    }
+
+    if (
+        ($turb !== null && $turb > 1.0) ||
+        ($tdsValue !== null && $tdsValue >= 500) ||
+        ($temp !== null && ($temp < 10 || $temp > 35))
+    ) {
+        return "Moderate Risk";
+    }
+
+    return "Low Risk";
+}
+
 $aiFolder = __DIR__ . DIRECTORY_SEPARATOR . 'ai_model';
 
 if (!is_dir($aiFolder)) {
@@ -31,8 +96,6 @@ if (!is_dir($aiFolder)) {
     ]);
     exit;
 }
-
-$python = getenv('PYTHON_BIN');
 
 $python = getenv('PYTHON_BIN');
 
@@ -80,11 +143,28 @@ if ($output === null) {
     exit;
 }
 
-$risk = trim($output);
+$riskRaw = trim($output);
 
-if ($risk === "High Risk") {
-    $risk = "Critical Risk";
+$modelRisk = normalize_risk_label($riskRaw);
+$standardsRisk = derive_standard_risk($temperature, $ph, $turbidity, $tds);
+$savedRisk = $savedRiskInput !== null ? normalize_risk_label($savedRiskInput) : null;
+
+$validRisks = ["Low Risk", "Moderate Risk", "Critical Risk"];
+
+if ($modelRisk === null || !in_array($modelRisk, $validRisks, true)) {
+    echo json_encode([
+        "success" => false,
+        "message" => "AI prediction failed",
+        "debug" => $riskRaw
+    ]);
+    exit;
 }
+
+// Final official AI display risk.
+// It uses the Random Forest prediction, then applies standards and saved-history guardrails.
+$risk = $modelRisk;
+$risk = higher_risk($risk, $standardsRisk);
+$risk = higher_risk($risk, $savedRisk);
 
 $validRisks = ["Low Risk", "Moderate Risk", "Critical Risk"];
 
@@ -199,6 +279,9 @@ $analysis = build_ai_reasons_and_recommendations($temperature, $ph, $turbidity, 
 echo json_encode([
     "success" => true,
     "risk" => $risk,
+    "model_risk" => $modelRisk,
+    "standards_risk" => $standardsRisk,
+    "saved_risk" => $savedRisk,
     "suggestion" => $suggestion,
     "reasons" => $analysis["reasons"],
     "recommendations" => $analysis["recommendations"]

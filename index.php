@@ -198,7 +198,7 @@
                     </div>
 
                     <div class="ai-insights">
-                        <h3>AI Insights</h3>
+                        <h3>AI-Assisted Insights</h3>
 
                         <div class="insight-list" id="ai-insights-list">
                             <div class="insight-item normal">

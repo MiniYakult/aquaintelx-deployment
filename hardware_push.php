@@ -143,6 +143,96 @@ function get_table_columns($pdo, $tableName) {
     return $columns;
 }
 
+function normalize_risk_label($risk) {
+    $risk = strtolower(trim((string)$risk));
+
+    if (in_array($risk, ["normal", "low", "low risk", "safe", "optimal"], true)) {
+        return "Low Risk";
+    }
+
+    if (in_array($risk, ["moderate", "moderate risk", "warning", "caution"], true)) {
+        return "Moderate Risk";
+    }
+
+    if (in_array($risk, ["critical", "critical risk", "high", "high risk", "danger", "unsafe"], true)) {
+        return "Critical Risk";
+    }
+
+    return null;
+}
+
+function risk_rank($risk) {
+    $risk = normalize_risk_label($risk);
+
+    if ($risk === "Low Risk") {
+        return 1;
+    }
+
+    if ($risk === "Moderate Risk") {
+        return 2;
+    }
+
+    if ($risk === "Critical Risk") {
+        return 3;
+    }
+
+    return 0;
+}
+
+function higher_risk($riskA, $riskB) {
+    $a = normalize_risk_label($riskA);
+    $b = normalize_risk_label($riskB);
+
+    if ($a === null) {
+        return $b ?? "Moderate Risk";
+    }
+
+    if ($b === null) {
+        return $a;
+    }
+
+    return risk_rank($b) > risk_rank($a) ? $b : $a;
+}
+
+function derive_risk_from_sensor_values($temperature, $temperature_valid, $ph, $ph_valid, $turbidity, $tds) {
+    $useTemp = $temperature !== null && intval($temperature_valid) === 1;
+    $usePh = $ph !== null && intval($ph_valid) === 1;
+
+    // PNSDW-based critical checks for available AquaIntelX parameters
+    if (
+        ($usePh && ($ph < 6.5 || $ph > 8.5)) ||
+        ($turbidity !== null && $turbidity > 5.0) ||
+        ($tds !== null && $tds > 600)
+    ) {
+        return "Critical Risk";
+    }
+
+    // Monitoring / early warning checks
+    if (
+        ($turbidity !== null && $turbidity > 1.0) ||
+        ($tds !== null && $tds >= 500) ||
+        ($useTemp && ($temperature < 10 || $temperature > 35))
+    ) {
+        return "Moderate Risk";
+    }
+
+    return "Low Risk";
+}
+
+function legacy_status_from_risk($risk) {
+    $risk = normalize_risk_label($risk);
+
+    if ($risk === "Critical Risk") {
+        return "critical";
+    }
+
+    if ($risk === "Moderate Risk") {
+        return "warning";
+    }
+
+    return "normal";
+}
+
 // ===============================
 // GET VALUES FROM ESP32
 // ===============================
@@ -215,30 +305,31 @@ if ($ph === null || $turbidity === null || $tds === null) {
 // ===============================
 // RISK / STATUS
 // ===============================
+// Backward-compatible risk handling:
+// 1. Accept ESP32 risk_level if sent.
+// 2. Derive server-side risk from sensor values.
+// 3. Use the higher severity so bad pH/TDS/turbidity cannot be saved as Low Risk.
+// 4. Still save old status values for compatibility.
 
-if ($risk_level === null || trim($risk_level) === "") {
-    if ($turbidity <= 10) {
-        $risk_level = "LOW RISK";
-    } elseif ($turbidity <= 50) {
-        $risk_level = "MODERATE";
-    } else {
-        $risk_level = "CRITICAL";
-    }
+$incomingRisk = null;
+
+if ($risk_level !== null && trim((string)$risk_level) !== "") {
+    $incomingRisk = normalize_risk_label($risk_level);
 }
 
+$serverRisk = derive_risk_from_sensor_values(
+    $temperature,
+    $temperature_valid,
+    $ph,
+    $ph_valid,
+    $turbidity,
+    $tds
+);
+
+$risk_level = higher_risk($incomingRisk, $serverRisk);
 $risk_level = safe_string($risk_level, 50);
 
-$riskUpper = strtoupper($risk_level);
-$sensor_status = "normal";
-
-if (strpos($riskUpper, "CRITICAL") !== false) {
-    $sensor_status = "critical";
-} elseif (
-    strpos($riskUpper, "MODERATE") !== false ||
-    strpos($riskUpper, "WARNING") !== false
-) {
-    $sensor_status = "warning";
-}
+$sensor_status = legacy_status_from_risk($risk_level);
 
 // ===============================
 // INSERT INTO DATABASE

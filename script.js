@@ -657,16 +657,6 @@ document.addEventListener('DOMContentLoaded', () => {
             setStatus('tds-status', 'Latest Reading');
             setStatus('ph-status', 'Latest Reading');
 
-            if (live.temperature !== undefined) {
-                pushLiveChartSample({ ...live, time: new Date() });
-
-                this.analyzeWaterQuality({
-                    temp: live.temperature,
-                    turb: live.turbidity,
-                    tds: live.tds,
-                    ph: live.ph
-                });
-            }
         }
 
         async analyzeWaterQuality(metrics) {
@@ -1176,6 +1166,133 @@ document.addEventListener('DOMContentLoaded', () => {
 
     syncExportLink();
 
+    function insightClassFromRisk(risk) {
+        const label = normalizeRiskLabel(risk);
+
+        if (label === 'Critical Risk') return 'critical';
+        if (label === 'Moderate Risk') return 'warning';
+        return 'normal';
+    }
+
+    function insightIconFromRisk(risk) {
+        const label = normalizeRiskLabel(risk);
+
+        if (label === 'Critical Risk') return 'ph-x-circle';
+        if (label === 'Moderate Risk') return 'ph-warning-circle';
+        return 'ph-check-circle';
+    }
+
+    async function loadLatestAIInsightFromDB() {
+        const listEl = document.getElementById('ai-insights-list');
+        if (!listEl) return;
+
+        try {
+            const params = new URLSearchParams({
+                action: 'history',
+                limit: '1',
+                page: '1',
+                range: 'all',
+                status: 'all',
+                node: 'all'
+            });
+
+            const res = await fetch(`sensor_api.php?${params.toString()}`, {
+                cache: 'no-store'
+            });
+
+            const data = await res.json();
+
+            if (!data.success || !data.data || !data.data.length) {
+                listEl.innerHTML = `
+                    <div class="insight-item warning">
+                        <i class="ph ph-warning-circle insight-icon"></i>
+                        <div class="insight-content">
+                            <h4>No Final Reading Yet</h4>
+                            <p>Waiting for the first processed database reading.</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const row = data.data[0];
+
+            const temp = row.temperature;
+            const ph = row.ph;
+            const turbidity = row.turbidity;
+            const tds = row.tds;
+
+            const aiParams = new URLSearchParams({
+                temperature: temp ?? '',
+                ph: ph ?? '',
+                turbidity: turbidity ?? '',
+                tds: tds ?? ''
+            });
+
+            const aiRes = await fetch(`ai_predict.php?${aiParams.toString()}`, {
+                cache: 'no-store'
+            });
+
+            const result = await aiRes.json();
+
+            if (!result.success) {
+                throw new Error(result.message || 'AI prediction failed');
+            }
+
+            const riskLabel = normalizeRiskLabel(result.risk);
+            const cssClass = insightClassFromRisk(riskLabel);
+            const icon = insightIconFromRisk(riskLabel);
+
+            const reasons = Array.isArray(result.reasons) && result.reasons.length
+                ? result.reasons.map(reason => `<li>${reason}</li>`).join('')
+                : `<li>${result.suggestion || 'Water quality assessment completed based on the latest saved reading.'}</li>`;
+
+            const recommendations = Array.isArray(result.recommendations) && result.recommendations.length
+                ? result.recommendations.map(item => `<li>${item}</li>`).join('')
+                : `<li>${result.suggestion || 'Continue monitoring water quality.'}</li>`;
+
+            listEl.innerHTML = `
+                <div class="insight-item ${cssClass}" style="display:block; padding:22px;">
+                    <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+                        <i class="ph ${icon}" style="font-size:34px;"></i>
+                        <h4 style="font-size:20px; margin:0;">${riskLabel}</h4>
+                    </div>
+
+                    <p style="font-size:14px; color:var(--text-muted); margin-bottom:12px;">
+                        Based on latest saved reading: pH ${ph ?? '—'}, Turbidity ${turbidity ?? '—'} NTU,
+                        Temperature ${temp ?? '—'}°C, TDS ${tds ?? '—'} ppm.
+                    </p>
+
+                    <div style="margin-bottom:14px;">
+                        <strong>Why:</strong>
+                        <ul style="margin:8px 0 0 20px; line-height:1.6;">
+                            ${reasons}
+                        </ul>
+                    </div>
+
+                    <div>
+                        <strong>Recommendation:</strong>
+                        <ul style="margin:8px 0 0 20px; line-height:1.6;">
+                            ${recommendations}
+                        </ul>
+                    </div>
+                </div>
+            `;
+        } catch (error) {
+            console.error(error);
+
+            listEl.innerHTML = `
+                <div class="insight-item warning">
+                    <i class="ph ph-warning-circle insight-icon"></i>
+                    <div class="insight-content">
+                        <h4>AI Analysis Unavailable</h4>
+                        <p>Could not analyze the latest saved database reading.</p>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
     // ── Chart Data from DB ────────────────────────────────
     async function loadChartFromDB(range = '24h') {
         try {
@@ -1276,12 +1393,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             loadChartFromDB(currentAnalyticsRange);
             loadStats(currentAnalyticsRange);
+            loadLatestAIInsightFromDB();
         });
     }
 
     // ── Initial load ──────────────────────────────────────
     loadChartFromDB(currentAnalyticsRange);
     loadStats(currentAnalyticsRange);
+    loadLatestAIInsightFromDB();
 
     if (document.getElementById('history')?.classList.contains('active')) {
         loadHistory(1, currentHistoryFilters);
@@ -1289,11 +1408,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Refresh history & stats every 30 seconds in the background
     setInterval(() => {
-        if (document.getElementById('history')?.classList.contains('active')) {
-            loadHistory(currentPage, currentHistoryFilters);
-        }
+    if (document.getElementById('history')?.classList.contains('active')) {
+        loadHistory(currentPage, currentHistoryFilters);
+    }
 
-        loadStats(currentAnalyticsRange);
-    }, 30000);
+    loadStats(currentAnalyticsRange);
+    loadChartFromDB(currentAnalyticsRange);
+    loadLatestAIInsightFromDB();
+}, 30000);
 
 });

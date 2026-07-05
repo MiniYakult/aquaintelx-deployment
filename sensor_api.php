@@ -204,7 +204,7 @@ function handleChart(PDO $pdo): void {
     $timeExpr = sensorTimeExpr($pdo);
     $selectReadingTime = sensorHasColumn($pdo, 'reading_time') ? 'reading_time' : 'NULL AS reading_time';
     $selectRecordedAt = sensorHasColumn($pdo, 'recorded_at') ? 'recorded_at' : 'NULL AS recorded_at';
-    $selectStatus = sensorHasColumn($pdo, 'status') ? 'status' : sensorStatusExpr($pdo) . ' AS status';
+    $selectStatus = sensorStatusExpr($pdo) . ' AS status';
 
     $where  = "$timeExpr >= NOW() - INTERVAL $interval";
     $params = [];
@@ -353,6 +353,60 @@ function handleDelete(PDO $pdo): void {
 }
 
 // ── Shared insert logic ────────────────────────────────────
+function normalizeRiskLabel($risk): string {
+    $risk = strtolower(trim((string)$risk));
+
+    if (in_array($risk, ['normal', 'low', 'low risk', 'safe', 'optimal'], true)) {
+        return 'Low Risk';
+    }
+
+    if (in_array($risk, ['warning', 'moderate', 'moderate risk', 'caution'], true)) {
+        return 'Moderate Risk';
+    }
+
+    if (in_array($risk, ['critical', 'critical risk', 'high', 'high risk', 'danger', 'unsafe'], true)) {
+        return 'Critical Risk';
+    }
+
+    return 'Moderate Risk';
+}
+
+function legacyStatusFromRisk(string $risk): string {
+    $risk = normalizeRiskLabel($risk);
+
+    if ($risk === 'Low Risk') {
+        return 'normal';
+    }
+
+    if ($risk === 'Moderate Risk') {
+        return 'warning';
+    }
+
+    return 'critical';
+}
+
+function deriveRiskFromSensorValues(?float $temp, ?float $turb, ?float $tds, ?float $ph): string {
+    if (
+        ($turb !== null && $turb > 5.0) ||
+        ($ph   !== null && ($ph < 6.0 || $ph > 9.0)) ||
+        ($tds  !== null && $tds > 600) ||
+        ($temp !== null && ($temp < 5 || $temp > 35))
+    ) {
+        return 'Critical Risk';
+    }
+
+    if (
+        ($turb !== null && $turb > 2.0) ||
+        ($ph   !== null && ($ph < 6.5 || $ph > 8.5)) ||
+        ($tds  !== null && $tds > 500) ||
+        ($temp !== null && ($temp < 10 || $temp > 30))
+    ) {
+        return 'Moderate Risk';
+    }
+
+    return 'Low Risk';
+}
+
 function insertReading(PDO $pdo, array $body): void {
     $node  = substr(trim($body['sensor_node'] ?? 'NODE-01'), 0, 50);
     $temp  = isset($body['temperature']) ? (float)$body['temperature'] : null;
@@ -360,43 +414,80 @@ function insertReading(PDO $pdo, array $body): void {
     $tds   = isset($body['tds'])         ? (float)$body['tds']         : null;
     $ph    = isset($body['ph'])          ? (float)$body['ph']          : null;
 
-    // Derive status
-    $status = 'normal';
-    if (
-        ($turb !== null && $turb > 5.0) ||
-        ($ph   !== null && ($ph < 6.0 || $ph > 9.0)) ||
-        ($tds  !== null && $tds > 600) ||
-        ($temp !== null && ($temp < 5 || $temp > 35))
-    ) {
-        $status = 'critical';
-    } elseif (
-        ($turb !== null && $turb > 2.0) ||
-        ($ph   !== null && ($ph < 6.5 || $ph > 8.5)) ||
-        ($tds  !== null && $tds > 500) ||
-        ($temp !== null && ($temp < 10 || $temp > 30))
-    ) {
-        $status = 'warning';
+    /*
+     * Backward-compatible behavior:
+     * - If hardware/backend sends risk_level, use it.
+     * - Else if it sends old status, normalize it.
+     * - Else derive a fallback risk from sensor thresholds.
+     *
+     * This does not break old ESP32/prototype requests.
+     */
+    if (isset($body['risk_level']) && trim((string)$body['risk_level']) !== '') {
+        $riskLevel = normalizeRiskLabel($body['risk_level']);
+    } elseif (isset($body['status']) && trim((string)$body['status']) !== '') {
+        $riskLevel = normalizeRiskLabel($body['status']);
+    } else {
+        $riskLevel = deriveRiskFromSensorValues($temp, $turb, $tds, $ph);
     }
 
-    $stmt = $pdo->prepare(
-        'INSERT INTO sensor_readings (sensor_node, temperature, turbidity, tds, ph, status)
-         VALUES (:node, :temp, :turb, :tds, :ph, :status)'
-    );
-    $stmt->execute([
-        ':node'   => $node,
-        ':temp'   => $temp,
-        ':turb'   => $turb,
-        ':tds'    => $tds,
-        ':ph'     => $ph,
-        ':status' => $status,
-    ]);
+    $status = legacyStatusFromRisk($riskLevel);
+
+    $hasRiskLevel = sensorHasColumn($pdo, 'risk_level');
+    $hasStatus = sensorHasColumn($pdo, 'status');
+
+    if ($hasRiskLevel && $hasStatus) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO sensor_readings (sensor_node, temperature, turbidity, tds, ph, status, risk_level)
+             VALUES (:node, :temp, :turb, :tds, :ph, :status, :risk_level)'
+        );
+
+        $stmt->execute([
+            ':node'       => $node,
+            ':temp'       => $temp,
+            ':turb'       => $turb,
+            ':tds'        => $tds,
+            ':ph'         => $ph,
+            ':status'     => $status,
+            ':risk_level' => $riskLevel,
+        ]);
+    } elseif ($hasRiskLevel) {
+        $stmt = $pdo->prepare(
+            'INSERT INTO sensor_readings (sensor_node, temperature, turbidity, tds, ph, risk_level)
+             VALUES (:node, :temp, :turb, :tds, :ph, :risk_level)'
+        );
+
+        $stmt->execute([
+            ':node'       => $node,
+            ':temp'       => $temp,
+            ':turb'       => $turb,
+            ':tds'        => $tds,
+            ':ph'         => $ph,
+            ':risk_level' => $riskLevel,
+        ]);
+    } else {
+        $stmt = $pdo->prepare(
+            'INSERT INTO sensor_readings (sensor_node, temperature, turbidity, tds, ph, status)
+             VALUES (:node, :temp, :turb, :tds, :ph, :status)'
+        );
+
+        $stmt->execute([
+            ':node'   => $node,
+            ':temp'   => $temp,
+            ':turb'   => $turb,
+            ':tds'    => $tds,
+            ':ph'     => $ph,
+            ':status' => $status,
+        ]);
+    }
 
     $id = (int)$pdo->lastInsertId();
+
     echo json_encode([
-        'success'  => true,
-        'message'  => 'Reading saved.',
-        'id'       => $id,
-        'status'   => $status,
+        'success'    => true,
+        'message'    => 'Reading saved.',
+        'id'         => $id,
+        'status'     => $status,
+        'risk_level' => $riskLevel,
     ]);
 }
 
@@ -442,12 +533,12 @@ function sensorStatusExpr(PDO $pdo): string {
     $hasStatus = sensorHasColumn($pdo, 'status');
 
     if ($hasRiskLevel && $hasStatus) {
-        return 'COALESCE(risk_level, status)';
+        return "COALESCE(NULLIF(TRIM(risk_level), ''), NULLIF(TRIM(status), ''))";
     }
 
     if ($hasRiskLevel) {
-        return 'risk_level';
+        return "risk_level";
     }
 
-    return 'status';
+    return "status";
 }

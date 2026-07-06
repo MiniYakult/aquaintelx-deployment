@@ -198,20 +198,35 @@ function derive_risk_from_sensor_values($temperature, $temperature_valid, $ph, $
     $useTemp = $temperature !== null && intval($temperature_valid) === 1;
     $usePh = $ph !== null && intval($ph_valid) === 1;
 
-    // PNSDW-based critical checks for available AquaIntelX parameters
+    $tempValue = $useTemp ? (float)$temperature : null;
+    $phValue = $usePh ? (float)$ph : null;
+    $turbValue = $turbidity !== null ? (float)$turbidity : null;
+    $tdsValue = $tds !== null ? (float)$tds : null;
+
+    $lowConductivity = $tdsValue !== null && $tdsValue <= 20;
+    $phOutOfRange = $phValue !== null && ($phValue < 6.5 || $phValue > 8.5);
+    $phExtreme = $phValue !== null && ($phValue < 5.5 || $phValue > 9.5);
+
+    /*
+        Logic:
+        - Low TDS/distilled water can make pH readings unstable.
+        - Slight pH drift with very low TDS is treated as Moderate Risk / sensor verification.
+        - Extreme pH, high turbidity, or high TDS remains Critical Risk.
+    */
+
     if (
-        ($usePh && ($ph < 6.5 || $ph > 8.5)) ||
-        ($turbidity !== null && $turbidity > 5.0) ||
-        ($tds !== null && $tds > 600)
+        ($phOutOfRange && (!$lowConductivity || $phExtreme)) ||
+        ($turbValue !== null && $turbValue > 5.0) ||
+        ($tdsValue !== null && $tdsValue > 600)
     ) {
         return "Critical Risk";
     }
 
-    // Monitoring / early warning checks
     if (
-        ($turbidity !== null && $turbidity > 1.0) ||
-        ($tds !== null && $tds >= 500) ||
-        ($useTemp && ($temperature < 10 || $temperature > 35))
+        ($lowConductivity && $phOutOfRange) ||
+        ($turbValue !== null && $turbValue > 1.0) ||
+        ($tdsValue !== null && $tdsValue >= 500) ||
+        ($tempValue !== null && ($tempValue < 10 || $tempValue > 35))
     ) {
         return "Moderate Risk";
     }

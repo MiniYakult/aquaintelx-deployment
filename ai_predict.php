@@ -68,8 +68,19 @@ function derive_standard_risk($temperature, $ph, $turbidity, $tds): string {
     $turb = is_numeric($turbidity) ? (float)$turbidity : null;
     $tdsValue = is_numeric($tds) ? (float)$tds : null;
 
+    $lowConductivity = $tdsValue !== null && $tdsValue <= 20;
+    $phOutOfRange = $phValue !== null && ($phValue < 6.5 || $phValue > 8.5);
+    $phExtreme = $phValue !== null && ($phValue < 5.5 || $phValue > 9.5);
+
+    /*
+        Logic:
+        - Low TDS/distilled water can make pH readings unstable.
+        - Slight pH drift with very low TDS is treated as Moderate Risk / sensor verification.
+        - Extreme pH, high turbidity, or high TDS remains Critical Risk.
+    */
+
     if (
-        ($phValue !== null && ($phValue < 6.5 || $phValue > 8.5)) ||
+        ($phOutOfRange && (!$lowConductivity || $phExtreme)) ||
         ($turb !== null && $turb > 5.0) ||
         ($tdsValue !== null && $tdsValue > 600)
     ) {
@@ -77,6 +88,7 @@ function derive_standard_risk($temperature, $ph, $turbidity, $tds): string {
     }
 
     if (
+        ($lowConductivity && $phOutOfRange) ||
         ($turb !== null && $turb > 1.0) ||
         ($tdsValue !== null && $tdsValue >= 500) ||
         ($temp !== null && ($temp < 10 || $temp > 35))

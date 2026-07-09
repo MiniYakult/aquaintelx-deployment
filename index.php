@@ -768,6 +768,9 @@ $currentUserAvatarLarge = $currentUserProfileImageRaw !== ''
         </div>
     </div>
 
+    <!-- Notification -->
+    <div id="risk-notification-container" class="risk-notification-container" aria-live="polite"></div>
+
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 

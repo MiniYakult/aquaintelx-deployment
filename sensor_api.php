@@ -590,33 +590,46 @@ function currentDashboardUserEmail(): string {
 }
 
 function addUserScopeFilter(PDO $pdo, array &$where, array &$params, string $prefix = ''): void {
+    // Admin can view all readings.
     if (currentDashboardUserRole() === 'admin') {
         return;
     }
 
-    if (sensorHasColumn($pdo, 'owner_user_id')) {
-        $userId = currentDashboardUserId();
+    /*
+        Viewer/User access:
+        Instead of requiring every sensor_readings row to have owner_user_id or owner_email,
+        the user is assigned to a sensor node. This is better for IoT readings because
+        the ESP32 sends data as a device, not as a logged-in user.
+    */
 
-        if ($userId !== null) {
-            $paramName = ':scope_owner_user_id';
-            $where[] = "{$prefix}owner_user_id = $paramName";
-            $params[$paramName] = $userId;
-            return;
+    $assignedNode = 'NODE-01';
+    $userId = currentDashboardUserId();
+
+    if ($userId !== null) {
+        try {
+            $hasAssignedNodeColumn = false;
+            $stmt = $pdo->query("SHOW COLUMNS FROM users LIKE 'assigned_sensor_node'");
+            if ($stmt && $stmt->fetch()) {
+                $hasAssignedNodeColumn = true;
+            }
+
+            if ($hasAssignedNodeColumn) {
+                $stmt = $pdo->prepare("SELECT assigned_sensor_node FROM users WHERE id = :id LIMIT 1");
+                $stmt->execute([':id' => $userId]);
+                $node = trim((string)$stmt->fetchColumn());
+
+                if ($node !== '') {
+                    $assignedNode = $node;
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('User sensor-node scope fallback used: ' . $e->getMessage());
         }
     }
 
-    if (sensorHasColumn($pdo, 'owner_email')) {
-        $email = currentDashboardUserEmail();
-
-        if ($email !== '') {
-            $paramName = ':scope_owner_email';
-            $where[] = "{$prefix}owner_email = $paramName";
-            $params[$paramName] = $email;
-            return;
-        }
-    }
-
-    $where[] = '1 = 0';
+    $paramName = ':scope_sensor_node';
+    $where[] = "{$prefix}sensor_node = $paramName";
+    $params[$paramName] = $assignedNode;
 }
 
 function ownerUserIdFromBodyOrSession(array $body): ?int {

@@ -5,7 +5,7 @@
 function aquaintelx_pdo() {
     $host = getenv("MYSQLHOST") ?: getenv("DB_HOST") ?: "localhost";
     $port = getenv("MYSQLPORT") ?: getenv("DB_PORT") ?: "3306";
-    $dbname = getenv("MYSQLDATABASE") ?: getenv("DB_NAME") ?: "railway";
+    $dbname = getenv("MYSQLDATABASE") ?: getenv("DB_NAME") ?: (getenv("RAILWAY_ENVIRONMENT") ? "railway" : "aquaintelx");
     $username = getenv("MYSQLUSER") ?: getenv("DB_USER") ?: "root";
     $password = getenv("MYSQLPASSWORD") ?: getenv("DB_PASSWORD") ?: "";
 

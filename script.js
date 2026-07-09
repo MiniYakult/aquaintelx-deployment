@@ -24,6 +24,130 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const LIVE_CHART_MAX_POINTS = 36;
 
+    let lastRiskNotificationKey = null;
+    let audioNotificationUnlocked = false;
+
+    function normalizeNotificationRisk(risk) {
+        const value = String(risk || '').toLowerCase().trim();
+
+        if (value.includes('critical') || value.includes('danger') || value.includes('high')) {
+            return 'Critical Risk';
+        }
+
+        if (value.includes('moderate') || value.includes('warning') || value.includes('caution')) {
+            return 'Moderate Risk';
+        }
+
+        if (value.includes('low') || value.includes('safe') || value.includes('normal')) {
+            return 'Low Risk';
+        }
+
+        return '';
+    }
+
+    function unlockAudioNotification() {
+        audioNotificationUnlocked = true;
+    }
+
+    document.addEventListener('click', unlockAudioNotification, { once: true });
+    document.addEventListener('keydown', unlockAudioNotification, { once: true });
+
+    function playRiskAlertSound(risk) {
+        const finalRisk = normalizeNotificationRisk(risk);
+
+        if (!audioNotificationUnlocked) {
+            return;
+        }
+
+        try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+            if (!AudioContextClass) {
+                return;
+            }
+
+            const audioCtx = new AudioContextClass();
+            const beepCount = finalRisk === 'Critical Risk' ? 3 : 2;
+            const frequency = finalRisk === 'Critical Risk' ? 880 : 660;
+
+            for (let i = 0; i < beepCount; i++) {
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime + i * 0.35);
+
+                gainNode.gain.setValueAtTime(0.18, audioCtx.currentTime + i * 0.35);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + i * 0.35 + 0.18);
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.start(audioCtx.currentTime + i * 0.35);
+                oscillator.stop(audioCtx.currentTime + i * 0.35 + 0.18);
+            }
+        } catch (error) {
+            console.warn('Audio alert could not be played:', error);
+        }
+    }
+
+    function showRiskNotification(risk, row = {}) {
+        const finalRisk = normalizeNotificationRisk(risk);
+
+        if (finalRisk !== 'Moderate Risk' && finalRisk !== 'Critical Risk') {
+            return;
+        }
+
+        const readingKey = row.id || row.reading_time || row.updated_at || `${finalRisk}-${row.ph}-${row.turbidity}-${row.tds}`;
+
+        if (lastRiskNotificationKey === readingKey) {
+            return;
+        }
+
+        lastRiskNotificationKey = readingKey;
+
+        const container = document.getElementById('risk-notification-container');
+
+        if (!container) {
+            return;
+        }
+
+        const typeClass = finalRisk === 'Critical Risk' ? 'critical' : 'moderate';
+
+        const title = finalRisk === 'Critical Risk'
+            ? 'Critical Water Quality Alert'
+            : 'Water Quality Caution';
+
+        const message = finalRisk === 'Critical Risk'
+            ? 'A critical risk reading was detected. Audio alert activated. Avoid drinking the water and perform re-sampling after flushing.'
+            : 'A moderate risk reading was detected. Audio alert activated. Re-test the water and continue monitoring.';
+
+        const timeText = row.display_time || row.reading_time || row.updated_at || row.timestamp || 'Latest saved reading';
+
+        const notification = document.createElement('div');
+        notification.className = `risk-notification ${typeClass}`;
+
+        notification.innerHTML = `
+            <div class="risk-notification-header">
+                <div class="risk-notification-title">${title}</div>
+                <button class="risk-notification-close" type="button" aria-label="Close notification">×</button>
+            </div>
+            <div class="risk-notification-message">${message}</div>
+            <div class="risk-notification-time">${timeText}</div>
+        `;
+
+        notification.querySelector('.risk-notification-close')?.addEventListener('click', () => {
+            notification.remove();
+        });
+
+        container.appendChild(notification);
+        playRiskAlertSound(finalRisk);
+
+        setTimeout(() => {
+            notification.remove();
+        }, 12000);
+    }
+
     const gradientFill3 = ctx ? ctx.createLinearGradient(0, 0, 0, 300) : null;
     if (gradientFill3) {
         gradientFill3.addColorStop(0, 'rgba(245, 158, 11, 0.35)');
@@ -560,6 +684,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const riskLabel = incomingRisk ? normalizeRiskLabel(incomingRisk) : deriveRiskFromValues(values);
         const config = riskUiConfig(riskLabel);
+
+        showRiskNotification(riskLabel, rawData);
 
         const card = document.getElementById('user-risk-card');
         if (card) {
@@ -2009,6 +2135,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const row = data.data[0];
+
+            const latestRiskForNotification = row.risk_level || row.final_status || row.status || '';
+            showRiskNotification(latestRiskForNotification, row);
 
             const temp = row.temperature;
             const ph = row.ph;
